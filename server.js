@@ -46,8 +46,8 @@ function findBySlugOrName(q) {
     const hit = KNOWLEDGE.items.find(x =>
       String(x.product_slug || "").toLowerCase() === slugFromUrl
     );
-    if (hit) return { type: "hit", item: hit };
-  }
+return { type: "hit", item: top.item, askedSize };
+}
 
   // 2) إذا المستخدم كتب slug مباشرة
   const directSlug = KNOWLEDGE.items.find(x =>
@@ -141,11 +141,6 @@ function findBySlugOrName(q) {
 }
 
   // 2) مطابقة تقريبية على الاسم
-  const hit2 = KNOWLEDGE.items.find(x =>
-    String(x.name || "").toLowerCase().includes(query) ||
-    query.includes(String(x.name || "").toLowerCase())
-  );
-  if (hit2) return hit2;
 
   // 3) مطابقة على slug ضمن النص مباشرة
   const hit3 = KNOWLEDGE.items.find(x =>
