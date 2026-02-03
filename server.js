@@ -32,21 +32,113 @@ function normalizeText(s) {
 }
 
 function findBySlugOrName(q) {
-  if (!KNOWLEDGE?.items?.length) return null;
+  if (!KNOWLEDGE?.items?.length) return { type: "none" };
 
-  const query = normalizeText(q).toLowerCase();
+  const raw = normalizeText(q);
+  const query = raw.toLowerCase();
 
   // محاولة استخراج slug من رابط المنتج إن وُجد
   const m = query.match(/\/product\/([a-z0-9\-]+)/i);
   const slugFromUrl = m?.[1] || null;
 
-  // 1) مطابقة على product_slug إن كانت موجودة
+  // 1) Exact match على product_slug
   if (slugFromUrl) {
     const hit = KNOWLEDGE.items.find(x =>
       String(x.product_slug || "").toLowerCase() === slugFromUrl
     );
-    if (hit) return hit;
+    if (hit) return { type: "hit", item: hit };
   }
+
+  // 2) إذا المستخدم كتب slug مباشرة
+  const directSlug = KNOWLEDGE.items.find(x =>
+    String(x.product_slug || "").toLowerCase() &&
+    query === String(x.product_slug || "").toLowerCase()
+  );
+  if (directSlug) return { type: "hit", item: directSlug };
+
+  // Helpers
+  const normField = (v) => String(v || "").toLowerCase();
+  const hasAny = (hay, needles) => needles.some(n => n && hay.includes(n));
+  const tokens = query
+    .replace(/[^\p{L}\p{N}\s\-]+/gu, " ")
+    .split(/\s+/)
+    .map(t => t.trim())
+    .filter(t => t.length >= 2);
+
+  // كشف سؤال مقاس: رقم مثل 41 أو 41.5
+  const sizeMatch = query.match(/(^|\s)(\d{2}(?:\.\d)?)(\s|$)/);
+  const askedSize = sizeMatch ? String(sizeMatch[2]) : null;
+
+  // 3) Scored search عبر حقول متعددة
+  const scored = [];
+  for (const x of KNOWLEDGE.items) {
+    const slug = normField(x.product_slug);
+    const name = normField(x.name);
+    const keywords = normField(x.keywords);
+    const tags = normField(x.brand_tags);
+    const sizes = normField(x.sizes);
+
+    // فلتر المقاس إن وُجد بالسؤال
+    if (askedSize) {
+      const sizeOk = sizes.split(",").map(s => s.trim()).includes(askedSize);
+      // إذا سأل عن مقاس، أعطي أولوية للعناصر اللي فيها هذا المقاس
+      if (!sizeOk) {
+        // نترك السياسات والفروع خارج فلتر المقاس
+        const isPolicy = slug.startsWith("policy-") || slug.startsWith("info-") || slug.startsWith("branch-");
+        if (!isPolicy) continue;
+      }
+    }
+
+    let score = 0;
+
+    // مطابقة الاسم
+    if (name === query) score += 80;
+    if (name.includes(query) || query.includes(name)) score += 40;
+
+    // مطابقة slug جزئية
+    if (slug && query.includes(slug)) score += 60;
+
+    // مطابقة tokens في keywords / tags / name
+    const hayAll = `${name} ${keywords} ${tags} ${sizes} ${slug}`;
+    for (const t of tokens) {
+      if (!t) continue;
+      if (name.includes(t)) score += 8;
+      if (keywords.includes(t)) score += 6;
+      if (tags.includes(t)) score += 5;
+      if (sizes.includes(t)) score += 10; // المقاس مهم
+      if (slug.includes(t)) score += 7;
+    }
+
+    // تعزيز خاص للسياسات عند ذكر كلمات سياسات
+    const policyHints = ["توصيل", "شحن", "تبديل", "استبدال", "إرجاع", "خصوصية", "شروط", "سياسة", "فروع", "موقع"];
+    const isPolicy = slug.startsWith("policy-") || slug.startsWith("info-") || slug.startsWith("branch-");
+    if (isPolicy && hasAny(query, policyHints)) score += 25;
+
+    if (score > 0) scored.push({ item: x, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+
+  if (!scored.length) return { type: "none" };
+
+  // 4) الغموض: إذا أكثر من نتيجة قوية
+  const top = scored[0];
+  const second = scored[1];
+
+  // Threshold بسيط
+  if (top.score < 25) return { type: "none" };
+
+  // إذا الثاني قريب من الأول → اسأل توضيح
+  if (second && second.score >= top.score - 5) {
+    const options = scored.slice(0, 4).map(s => ({
+      slug: s.item.product_slug || "",
+      name: s.item.name || ""
+    }));
+    return { type: "clarify", options, askedSize };
+  }
+
+  return { type: "hit", item: top.item, askedSize };
+}
 
   // 2) مطابقة تقريبية على الاسم
   const hit2 = KNOWLEDGE.items.find(x =>
@@ -87,16 +179,55 @@ function buildReplyFromItem(item) {
 }
 
 function handleQuery(q) {
-  const item = findBySlugOrName(q);
+  const result = findBySlugOrName(q);
 
-  if (item) {
+  if (result?.type === "hit" && result.item) {
+    // إذا سأل عن مقاس فقط بدون تحديد نوع (رجالي/نسائي) نعطيه سؤال توضيحي بدل رد منتج واحد
+    if (result.askedSize && String(q).trim().length <= 6) {
+      return {
+        ok: true,
+        found: false,
+        reply: `تمام 😊 المقاس ${result.askedSize} بدك **رجالي ولا نسائي**؟ وكمان بتحب السعر يكون ضمن أي مدى تقريبًا؟`,
+        tags: ["توضيح"]
+      };
+    }
+
     return {
       ok: true,
       found: true,
-      reply: buildReplyFromItem(item),
+      reply: buildReplyFromItem(result.item),
       tags: ["سعر"]
     };
   }
+
+  if (result?.type === "clarify") {
+    // سؤال توضيحي بدل اختيار عشوائي
+    const lines = [];
+    lines.push("أكيد 😊 بس حتى أعطيك جواب دقيق، قصدك أي واحد من التالي؟");
+    for (const o of result.options || []) {
+      if (!o.slug) continue;
+      lines.push(`- ${o.name} (اكتب: ${o.slug})`);
+    }
+    // إذا كان السؤال عن توصيل بدون مدينة
+    const ql = normalizeText(q).toLowerCase();
+    if (ql.includes("توصيل") || ql.includes("شحن")) {
+      lines.push("ولو سؤالك عن التوصيل: اكتب اسم المدينة (مثال: جلجولية / الخليل / القدس).");
+    }
+    return {
+      ok: true,
+      found: false,
+      reply: lines.join("\n"),
+      tags: ["توضيح"]
+    };
+  }
+
+  return {
+    ok: true,
+    found: false,
+    reply: "أكيد 😊 بس سؤالك لسه عام شوي. احكيلي قصدك: **التوصيل والشحن** ولا **التبديل** ولا **الخصوصية**؟ وإذا الموضوع توصيل، اكتب اسم المدينة.",
+    tags: ["توضيح"]
+  };
+}
 
   return {
     ok: true,
