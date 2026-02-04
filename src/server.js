@@ -66,7 +66,10 @@ app.post("/chatwoot/webhook", async (req, res) => {
 
     if (!getKnowledge()) await loadKnowledge();
 
-    const out = handleQuery(content, { conversationId, choiceMemory });
+    const out = handleQuery(content, {
+  conversationId: String(conversationId),
+  choiceMemory
+});
 
     await chatwootCreateMessage(conversationId, out.reply);
 
