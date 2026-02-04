@@ -1,4 +1,6 @@
+// Stage 2: Human-friendly replies + numbered choices + basic intent handling
 import { getKnowledge } from "../knowledge/loader.js";
+import { PROFILE } from "../client.profile.js";
 import { buildReplyFromItem } from "../replies/presenter.js";
 
 function normalizeText(s) {
@@ -116,16 +118,206 @@ export function handleQuery(q, ctx = {}) {
   const raw = normalizeText(q);
   const ql = raw.toLowerCase();
 
-  const result = searchKnowledge(raw);
+  const conversationId = ctx?.conversationId || null;
+  const choiceMemory = ctx?.choiceMemory;
 
-  if (result.askedSize && isOnlySizeQuery(raw)) {
+  // 0) إذا العميل رد برقم (اختيار من آخر قائمة)
+  const choiceNum = raw.match(/^\s*([1-4])\s*$/)?.[1] || null;
+  if (choiceNum && conversationId && choiceMemory?.has(conversationId)) {
+    const mem = choiceMemory.get(conversationId);
+    const picked = mem?.options?.[Number(choiceNum) - 1];
+    if (picked?.slug) {
+      const pickedResult = searchKnowledge(picked.slug);
+      if (pickedResult.type === "hit" && pickedResult.item) {
+        return {
+          ok: true,
+          found: true,
+          reply: buildReplyFromItem(pickedResult.item),
+          tags: ["اختيار"]
+        };
+      }
+    }
     return {
       ok: true,
       found: false,
-      reply: `تمام 😊 المقاس ${result.askedSize} بدك **رجالي ولا نسائي**؟ وكمان بتحب السعر يكون ضمن أي مدى تقريبًا؟`,
+      reply: "تمام 😊 بس ما قدرت أحدد اختيارك. اختار رقم من القائمة اللي قبل لو سمحت.",
       tags: ["توضيح"]
     };
   }
+
+  // 1) Intent بسيط جدًا (بدون AI)
+  const isShipping = /توصيل|شحن/.test(ql);
+  const isReturn = /إرجاع|ارجاع|ترجيع|استرجاع/.test(ql);
+  const isExchange = /تبديل|استبدال/.test(ql);
+  const isBranches = /فرع|فروع|موقع|وين/.test(ql);
+
+  // 2) ردود سياسات مباشرة (بدون ما نظهرها كمنتج)
+  if (isReturn) {
+    return {
+      ok: true,
+      found: true,
+      reply: PROFILE.replies_shami.policy_return_exchange,
+      tags: ["سياسة", "تبديل"]
+    };
+  }
+
+  // 3) توصيل + مدينة: جواب مباشر (جلجولية => 75)
+  if (isShipping) {
+    const city = extractCityFromText(ql);
+    if (!city) {
+      return {
+        ok: true,
+        found: false,
+        reply: PROFILE.replies_shami.policy_shipping_intro,
+        tags: ["توضيح", "توصيل"]
+      };
+    }
+
+    const fee = classifyShippingFee(city);
+    const daysMin = PROFILE.shipping.days_min;
+    const daysMax = PROFILE.shipping.days_max;
+
+    return {
+      ok: true,
+      found: true,
+      reply: `أكيد 😊 توصيل **${city}** رسومه **${fee} شيكل**. ومدة التوصيل عادة بين **${daysMin} إلى ${daysMax} أيام عمل**.`,
+      tags: ["توصيل"]
+    };
+  }
+
+  // 4) سؤال عام جدًا عن منتجات: لا نعطي سياسة بالغلط
+  // مثال: "بدّي حذاء" => نسأل توضيح بدل ما نخطفها بسياسة
+  const genericProductAsk = /بدّي|بدي|عايز|حذاء|كوتشي|جزمة|بوط|صندل|كروكس|شوز/.test(ql);
+  if (genericProductAsk && raw.length <= 30) {
+    // لو ما ذكر مقاس/ماركة/سعر → سؤال توضيح
+    const hasSize = !!extractSizeQuery(ql);
+    const hasMoney = /\d+\s*(شيكل|₪)/.test(ql);
+    const hasBrandHint = /joma|skechers|nike|adidas|puma|crocs|mizuno|brooks|asics/i.test(raw);
+
+    if (!hasSize && !hasMoney && !hasBrandHint) {
+      return {
+        ok: true,
+        found: false,
+        reply: PROFILE.replies_shami.ask_more_for_products,
+        tags: ["توضيح", "منتجات"]
+      };
+    }
+  }
+
+  // 5) المقاس فقط → سؤال توضيح (بدون عرض 4 منتجات مباشرة)
+  const askedSize = extractSizeQuery(ql);
+  if (askedSize && isOnlySizeQuery(raw)) {
+    return {
+      ok: true,
+      found: false,
+      reply: `تمام 😊 المقاس **${askedSize}** بدك **رجالي ولا نسائي**؟ وكمان بتحب السعر يكون ضمن أي مدى تقريبًا؟`,
+      tags: ["توضيح"]
+    };
+  }
+
+  // 6) البحث العام (منتجات + سياسات) مع عرض بشري
+  const result = searchKnowledge(raw);
+
+  if (result.type === "hit" && result.item) {
+    // حماية: إذا السؤال عام عن منتجات وطلع سياسة بالغلط، نسأل توضيح بدل ذلك
+    const slug = String(result.item.product_slug || "").toLowerCase();
+    const isPolicyLike = slug.startsWith("policy-") || slug.startsWith("info-") || slug.startsWith("branch-");
+    if (isPolicyLike && genericProductAsk) {
+      return {
+        ok: true,
+        found: false,
+        reply: PROFILE.replies_shami.ask_more_for_products,
+        tags: ["توضيح", "منتجات"]
+      };
+    }
+
+    return {
+      ok: true,
+      found: true,
+      reply: buildReplyFromItem(result.item),
+      tags: ["نتيجة"]
+    };
+  }
+
+  if (result.type === "clarify") {
+    // نخزن الخيارات عشان المستخدم يرد 1/2/3
+    if (conversationId && choiceMemory) {
+      choiceMemory.set(conversationId, {
+        ts: Date.now(),
+        options: (result.options || []).slice(0, 3) // نخليها 3 فقط
+      });
+    }
+
+    const opts = (result.options || []).slice(0, 3);
+    const lines = [];
+    lines.push("أكيد 😊 حتى أعطيك جواب دقيق، اختر رقم:");
+    opts.forEach((o, i) => {
+      lines.push(`${i + 1}) ${o.name}`);
+    });
+    lines.push("اكتب رقم الخيار فقط (مثال: 1).");
+
+    return {
+      ok: true,
+      found: false,
+      reply: lines.join("\n"),
+      tags: ["توضيح"]
+    };
+  }
+
+  // 7) fallback لطيف
+  if (isBranches) {
+    return {
+      ok: true,
+      found: false,
+      reply: "أكيد 😊 بتقصد **موقع الفروع** ولا **موقع المقر**؟ احكيلي شو بدك بالزبط.",
+      tags: ["توضيح", "فروع"]
+    };
+  }
+
+  if (isExchange) {
+    return {
+      ok: true,
+      found: true,
+      reply: PROFILE.replies_shami.policy_return_exchange,
+      tags: ["سياسة", "تبديل"]
+    };
+  }
+
+  return {
+    ok: true,
+    found: false,
+    reply: "أكيد 😊 بس وضّحلي شوي: سؤالك عن **التوصيل** ولا **التبديل** ولا بدك **اقتراح منتجات**؟",
+    tags: ["توضيح"]
+  };
+}
+
+// ===== Helpers for stage 2 =====
+function extractCityFromText(textLower) {
+  // نحاول نلتقط مدينة من جملة "على X" أو "إلى X"
+  const m = textLower.match(/(?:على|الى|إلى)\s+([^\s\?،]+(?:\s+[^\s\?،]+)*)/);
+  if (m?.[1]) return m[1].trim();
+  // أو إذا النص نفسه كلمة مدينة
+  if (textLower.length <= 18) return textLower.trim();
+  return null;
+}
+
+function classifyShippingFee(cityLowerRaw) {
+  const city = String(cityLowerRaw || "").toLowerCase();
+
+  // القدس
+  if (PROFILE.shipping.jerusalem_keywords.some(k => city.includes(String(k).toLowerCase()))) {
+    return PROFILE.shipping.fees_ils.jerusalem;
+  }
+
+  // الداخل 48
+  if (PROFILE.shipping.inside_1948_examples.some(c => city.includes(String(c).toLowerCase()))) {
+    return PROFILE.shipping.fees_ils.inside_1948;
+  }
+
+  // الافتراضي: الضفة
+  return PROFILE.shipping.fees_ils.west_bank;
+}
+
 
   if (result.type === "hit" && result.item) {
     return {
