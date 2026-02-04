@@ -113,6 +113,10 @@ function isOnlySizeQuery(raw) {
   const s = normalizeText(raw);
   return /^\d{2}(\.\d)?$/.test(s);
 }
+function pickOpening() {
+  const arr = ["تمام 😊", "أكيد 🌟", "ولا يهمك 😊", "حاضر 👌", "يسعدني 😊"];
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 export function handleQuery(q, ctx = {}) {
   const raw = normalizeText(q);
@@ -133,7 +137,7 @@ export function handleQuery(q, ctx = {}) {
           ok: true,
           found: true,
           reply: buildReplyFromItem(pickedResult.item),
-          tags: ["اختيار"]
+          tags: ["lead_product", "selection_made"]
         };
       }
     }
@@ -177,12 +181,17 @@ export function handleQuery(q, ctx = {}) {
     const daysMin = PROFILE.shipping.days_min;
     const daysMax = PROFILE.shipping.days_max;
 
-    return {
-      ok: true,
-      found: true,
-      reply: `أكيد 😊 توصيل **${city}** رسومه **${fee} شيكل**. ومدة التوصيل عادة بين **${daysMin} إلى ${daysMax} أيام عمل**.`,
-      tags: ["توصيل"]
-    };
+const zone =
+  fee === PROFILE.shipping.fees_ils.inside_1948 ? "inside_1948" :
+  fee === PROFILE.shipping.fees_ils.jerusalem ? "jerusalem" :
+  "west_bank";
+
+return {
+  ok: true,
+  found: true,
+  reply: `${pickOpening()} توصيل **${city}** رسومه **${fee} شيكل**. ومدة التوصيل عادة بين **${daysMin} إلى ${daysMax} أيام عمل**.`,
+  tags: ["lead_shipping", zone]
+};
   }
 
   // 4) سؤال عام جدًا عن منتجات: لا نعطي سياسة بالغلط
@@ -239,30 +248,35 @@ export function handleQuery(q, ctx = {}) {
     };
   }
 
-  if (result.type === "clarify") {
-    // نخزن الخيارات عشان المستخدم يرد 1/2/3
-    if (conversationId && choiceMemory) {
-      choiceMemory.set(conversationId, {
-        ts: Date.now(),
-        options: (result.options || []).slice(0, 3) // نخليها 3 فقط
-      });
-    }
+if (result.type === "clarify") {
+  const opts = (result.options || []).slice(0, 3);
 
-    const opts = (result.options || []).slice(0, 3);
-    const lines = [];
-    lines.push("أكيد 😊 حتى أعطيك جواب دقيق، اختر رقم:");
-    opts.forEach((o, i) => {
-      lines.push(`${i + 1}) ${o.name}`);
+  // نخزن الخيارات عشان المستخدم يرد 1/2/3
+  if (conversationId && choiceMemory) {
+    choiceMemory.set(conversationId, {
+      ts: Date.now(),
+      options: opts
     });
-    lines.push("اكتب رقم الخيار فقط (مثال: 1).");
-
-    return {
-      ok: true,
-      found: false,
-      reply: lines.join("\n"),
-      tags: ["توضيح"]
-    };
   }
+
+  const lines = [];
+  lines.push(pickOpening() + " حتى أعطيك جواب دقيق، اختر رقم:");
+  opts.forEach((o, i) => {
+    const item = searchKnowledge(o.slug);
+    const it = item?.item;
+    const price = it?.price ? `${it.price} شيكل` : "";
+    const avail = it?.availability ? `— ${it.availability}` : "";
+    lines.push(`${i + 1}) ${o.name}${price ? " — " + price : ""} ${avail}`.trim());
+  });
+  lines.push("اكتب رقم الخيار فقط (مثال: 1).");
+
+  return {
+    ok: true,
+    found: false,
+    reply: lines.join("\n"),
+    tags: ["needs_clarification", "lead_product"]
+  };
+}
 
   // 7) fallback لطيف
   if (isBranches) {
@@ -293,11 +307,16 @@ export function handleQuery(q, ctx = {}) {
 
 // ===== Helpers for stage 2 =====
 function extractCityFromText(textLower) {
-  // نحاول نلتقط مدينة من جملة "على X" أو "إلى X"
-  const m = textLower.match(/(?:على|الى|إلى)\s+([^\s\?،]+(?:\s+[^\s\?،]+)*)/);
+  const clean = String(textLower || "")
+    .replace(/<[^>]+>/g, " ")          // remove HTML tags
+    .replace(/[^\p{L}\p{N}\s\-]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const m = clean.match(/(?:على|الى|إلى)\s+(.+)$/);
   if (m?.[1]) return m[1].trim();
-  // أو إذا النص نفسه كلمة مدينة
-  if (textLower.length <= 18) return textLower.trim();
+
+  if (clean.length <= 18) return clean;
   return null;
 }
 
