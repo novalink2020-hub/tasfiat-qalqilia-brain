@@ -318,38 +318,3 @@ function classifyShippingFee(cityLowerRaw) {
   return PROFILE.shipping.fees_ils.west_bank;
 }
 
-
-  if (result.type === "hit" && result.item) {
-    return {
-      ok: true,
-      found: true,
-      reply: buildReplyFromItem(result.item),
-      tags: ["سعر"]
-    };
-  }
-
-  if (result.type === "clarify") {
-    const lines = [];
-    lines.push("أكيد 😊 بس حتى أعطيك جواب دقيق، قصدك أي واحد من التالي؟");
-    for (const o of result.options || []) {
-      if (!o.slug) continue;
-      lines.push(`- ${o.name} (اكتب: ${o.slug})`);
-    }
-    if (ql.includes("توصيل") || ql.includes("شحن")) {
-      lines.push("ولو سؤالك عن التوصيل: اكتب اسم المدينة (مثال: جلجولية / الخليل / القدس).");
-    }
-    return {
-      ok: true,
-      found: false,
-      reply: lines.join("\n"),
-      tags: ["توضيح"]
-    };
-  }
-
-  return {
-    ok: true,
-    found: false,
-    reply: "أكيد 😊 بس سؤالك لسه عام شوي. احكيلي قصدك: **التوصيل والشحن** ولا **التبديل** ولا **الخصوصية** ولا **الفروع**؟ وإذا الموضوع توصيل، اكتب اسم المدينة.",
-    tags: ["توضيح"]
-  };
-}
