@@ -27,7 +27,7 @@ app.post("/search", async (req, res) => {
   try {
     if (!getKnowledge()) await loadKnowledge();
     const q = req.body?.q || req.body?.query || "";
-    const out = handleQuery(q, { choiceMemory });
+    const out = handleQuery(q, { conversationId: "api-test", choiceMemory });
     res.json(out);
   } catch (e) {
     console.error(e);
@@ -74,8 +74,34 @@ app.post("/chatwoot/webhook", async (req, res) => {
     await chatwootCreateMessage(conversationId, out.reply);
 
     if (Array.isArray(out.tags) && out.tags.length) {
-      await chatwootSetLabels(conversationId, out.tags);
-    }
+      const mapToChatwootLabels = (tags = []) => {
+  const t = new Set(tags);
+
+  // لو رد منتج/سعر
+  if (t.has("نتيجة") || t.has("اختيار") || t.has("lead_product") || t.has("selection_made") || t.has("price_inquiry")) {
+    return ["سعر"];
+  }
+
+  // لو توضيح/اختيارات
+  if (t.has("توضيح") || t.has("needs_clarification")) {
+    return []; // ما نحط وسم لتجنب التشويش (اختياري)
+  }
+
+  // سياسات/توصيل
+  if (t.has("lead_shipping") || t.has("توصيل") || t.has("lead_policy")) {
+    return []; // لاحقًا نضيف وسوم خاصة لو حبيت
+  }
+
+  // خارج المعرفة
+  if (t.has("خارج_المعرفة")) return ["خارج_المعرفة"];
+
+  return [];
+};
+
+      const labels = mapToChatwootLabels(out.tags || []);
+if (labels.length) {
+  await chatwootSetLabels(conversationId, labels);
+}
 
     return res.json({ ok: true, replied: true, found: out.found, tags: out.tags });
   } catch (e) {
