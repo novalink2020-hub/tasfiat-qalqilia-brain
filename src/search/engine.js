@@ -334,10 +334,16 @@ function extractCityFromText(textLower) {
 function classifyShippingFee(cityLowerRaw) {
   const city = String(cityLowerRaw || "").toLowerCase();
 
+  // ضواحي القدس (تُعامل كضفة + ضواحي = 20)
+  if (PROFILE.shipping.jerusalem_suburbs_keywords?.some(k => city.includes(String(k).toLowerCase()))) {
+    return PROFILE.shipping.fees_ils.west_bank;
+  }
+
   // القدس
   if (PROFILE.shipping.jerusalem_keywords.some(k => city.includes(String(k).toLowerCase()))) {
     return PROFILE.shipping.fees_ils.jerusalem;
   }
+
 
   // الداخل 48
   if (PROFILE.shipping.inside_1948_examples.some(c => city.includes(String(c).toLowerCase()))) {
