@@ -10,6 +10,7 @@ export const PROFILE = Object.freeze({
       inside_1948: 75
     },
     jerusalem_keywords: ["القدس", "jerusalem"],
+jerusalem_suburbs_keywords: ["ضواحي القدس", "ضواحي"],
     inside_1948_examples: [
       "جلجولية", "الطيبة", "الطيرة", "كفر قاسم", "أم الفحم",
       "باقة الغربية", "اللد", "الرملة", "حيفا", "الناصرة", "يافا"
