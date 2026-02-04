@@ -121,14 +121,25 @@ function pickOpening() {
 export function handleQuery(q, ctx = {}) {
   const raw = normalizeText(q);
   const ql = raw.toLowerCase();
-
-  const conversationId = ctx?.conversationId || null;
+  // شكر/إغلاق لطيف
+  if (/^(\s*)(شكرا|شكرًا|يسلمو|يسلموا|مشكور|تسلم)(\s*)$/i.test(raw)) {
+    return {
+      ok: true,
+      found: true,
+      reply: "يسعدني 😊 إذا بدك أي شي بالتوصيل أو التبديل أو اقتراح منتج احكيلي بس.",
+      tags: ["thanks"]
+    };
+  }
+  const conversationId = ctx?.conversationId ?? null;
   const choiceMemory = ctx?.choiceMemory;
+
+  // مفتاح موحّد للذاكرة (حتى لو ID رقم/نص)
+  const convKey = conversationId !== null ? String(conversationId) : null;
 
   // 0) إذا العميل رد برقم (اختيار من آخر قائمة)
   const choiceNum = raw.match(/^\s*([1-4])\s*$/)?.[1] || null;
-  if (choiceNum && conversationId && choiceMemory?.has(conversationId)) {
-    const mem = choiceMemory.get(conversationId);
+  if (choiceNum && convKey && choiceMemory?.has(convKey)) {
+    const mem = choiceMemory.get(convKey);
     const picked = mem?.options?.[Number(choiceNum) - 1];
     if (picked?.slug) {
       const pickedResult = searchKnowledge(picked.slug);
@@ -137,7 +148,7 @@ export function handleQuery(q, ctx = {}) {
           ok: true,
           found: true,
           reply: buildReplyFromItem(pickedResult.item),
-          tags: ["lead_product", "selection_made"]
+          tags: ["lead_product", "selection_made", "price_inquiry"]
         };
       }
     }
@@ -252,8 +263,8 @@ if (result.type === "clarify") {
   const opts = (result.options || []).slice(0, 3);
 
   // نخزن الخيارات عشان المستخدم يرد 1/2/3
-  if (conversationId && choiceMemory) {
-    choiceMemory.set(conversationId, {
+  if (convKey && choiceMemory) {
+    choiceMemory.set(convKey, {
       ts: Date.now(),
       options: opts
     });
