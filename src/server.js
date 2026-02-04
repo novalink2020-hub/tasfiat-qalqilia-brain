@@ -17,6 +17,7 @@ app.get("/", (req, res) => {
   res.json({
     ok: true,
     service: "tasfiat-qalqilia-brain",
+    build_id: "refactor-modules-src-server-001",
     knowledge_url: CONFIG.KNOWLEDGE_URL || null,
     count: K?.count || K?.items?.length || 0
   });
