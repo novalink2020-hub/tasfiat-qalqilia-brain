@@ -36,6 +36,7 @@ app.post("/search", async (req, res) => {
 });
 
 // Webhook من Chatwoot: message_created
+// Webhook من Chatwoot: message_created
 app.post("/chatwoot/webhook", async (req, res) => {
   try {
     const body = req.body || {};
@@ -66,44 +67,43 @@ app.post("/chatwoot/webhook", async (req, res) => {
 
     if (!getKnowledge()) await loadKnowledge();
 
+    // نمرّر ctx فعليًا (بدونها اختيار 1/2/3 مستحيل يشتغل)
     const out = handleQuery(content, {
-  conversationId: String(conversationId),
-  choiceMemory
-});
+      conversationId: String(conversationId),
+      choiceMemory
+    });
 
+    // أرسل الرد داخل نفس المحادثة
     await chatwootCreateMessage(conversationId, out.reply);
 
-    if (Array.isArray(out.tags) && out.tags.length) {
-      const mapToChatwootLabels = (tags = []) => {
-  const t = new Set(tags);
+    // خريطة وسوم بسيطة لتطابق الوسوم الموجودة عندك
+    const mapToChatwootLabels = (tags = []) => {
+      const t = new Set(tags);
 
-  // لو رد منتج/سعر
-  if (t.has("نتيجة") || t.has("اختيار") || t.has("lead_product") || t.has("selection_made") || t.has("price_inquiry")) {
-    return ["سعر"];
-  }
+      // نتيجة منتج/سعر
+      if (
+        t.has("نتيجة") ||
+        t.has("اختيار") ||
+        t.has("lead_product") ||
+        t.has("selection_made") ||
+        t.has("price_inquiry")
+      ) return ["سعر"];
 
-  // لو توضيح/اختيارات
-  if (t.has("توضيح") || t.has("needs_clarification")) {
-    return []; // ما نحط وسم لتجنب التشويش (اختياري)
-  }
+      // خارج المعرفة
+      if (t.has("خارج_المعرفة")) return ["خارج_المعرفة"];
 
-  // سياسات/توصيل
-  if (t.has("lead_shipping") || t.has("توصيل") || t.has("lead_policy")) {
-    return []; // لاحقًا نضيف وسوم خاصة لو حبيت
-  }
+      // تصعيد
+      if (t.has("تصعيد")) return ["تصعيد"];
 
-  // خارج المعرفة
-  if (t.has("خارج_المعرفة")) return ["خارج_المعرفة"];
+      return [];
+    };
 
-  return [];
-};
+    const labels = mapToChatwootLabels(out.tags || []);
+    if (labels.length) {
+      await chatwootSetLabels(conversationId, labels);
+    }
 
-      const labels = mapToChatwootLabels(out.tags || []);
-if (labels.length) {
-  await chatwootSetLabels(conversationId, labels);
-}
-
-    return res.json({ ok: true, replied: true, found: out.found, tags: out.tags });
+    return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
   } catch (e) {
     console.error(e);
     return res.json({ ok: false, error: "webhook_failed" });
