@@ -200,6 +200,14 @@ export function handleQuery(q, ctx = {}) {
     }
 
     const fee = classifyShippingFee(city);
+    if (fee === null) {
+      return {
+        ok: true,
+        found: false,
+        reply: "بس للتوضيح 😊 التوصيل متاح الضفة/القدس/الداخل فقط. اكتب اسم المدينة داخل فلسطين وبطلعلك الرسوم فورًا.",
+        tags: ["توضيح", "توصيل"]
+      };
+    }
     const daysMin = PROFILE.shipping.days_min;
     const daysMax = PROFILE.shipping.days_max;
 
@@ -344,6 +352,11 @@ function extractCityFromText(textLower) {
 
 function classifyShippingFee(cityLowerRaw) {
   const city = String(cityLowerRaw || "").toLowerCase();
+    // لو البلد خارج فلسطين/القدس/الداخل: نطلب توضيح بدل ما نخمّن رسوم
+  if (city.includes("تركيا") || city.includes("turkey")) {
+    return null;
+  }
+
 
   // ضواحي القدس (تُعامل كضفة + ضواحي = 20)
   if (PROFILE.shipping.jerusalem_suburbs_keywords?.some(k => city.includes(String(k).toLowerCase()))) {
