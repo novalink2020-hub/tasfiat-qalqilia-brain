@@ -68,10 +68,7 @@ app.post("/chatwoot/webhook", async (req, res) => {
     if (!getKnowledge()) await loadKnowledge();
 
     // نمرّر ctx فعليًا (بدونها اختيار 1/2/3 مستحيل يشتغل)
-    const out = handleQuery(content, {
-      conversationId: String(conversationId),
-      choiceMemory
-    });
+    const out = handleQuery(content, { conversationId: String(conversationId), choiceMemory });
 
     // أرسل الرد داخل نفس المحادثة
     await chatwootCreateMessage(conversationId, out.reply);
@@ -99,9 +96,32 @@ app.post("/chatwoot/webhook", async (req, res) => {
     };
 
     const labels = mapToChatwootLabels(out.tags || []);
-    if (labels.length) {
-      await chatwootSetLabels(conversationId, labels);
-    }
+const mapToChatwootLabels = (tags = []) => {
+  const t = new Set(tags);
+
+  // منتجات/سعر
+  if (
+    t.has("نتيجة") ||
+    t.has("اختيار") ||
+    t.has("lead_product") ||
+    t.has("selection_made") ||
+    t.has("price_inquiry")
+  ) return ["سعر"];
+
+  // خارج المعرفة
+  if (t.has("خارج_المعرفة")) return ["خارج_المعرفة"];
+
+  // تصعيد
+  if (t.has("تصعيد")) return ["تصعيد"];
+
+  return [];
+};
+
+const labels = mapToChatwootLabels(out.tags || []);
+if (labels.length) {
+  await chatwootSetLabels(conversationId, labels);
+}
+
 
     return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
   } catch (e) {
