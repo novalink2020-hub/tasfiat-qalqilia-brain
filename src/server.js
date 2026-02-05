@@ -11,7 +11,31 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
-// ====== ROUTES ======
+// ===== Helpers =====
+function mapToChatwootLabels(tags = []) {
+  const t = new Set(Array.isArray(tags) ? tags : []);
+
+  // منتجات/سعر
+  if (
+    t.has("نتيجة") ||
+    t.has("اختيار") ||
+    t.has("lead_product") ||
+    t.has("selection_made") ||
+    t.has("price_inquiry")
+  ) {
+    return ["سعر"];
+  }
+
+  // خارج المعرفة
+  if (t.has("خارج_المعرفة")) return ["خارج_المعرفة"];
+
+  // تصعيد
+  if (t.has("تصعيد")) return ["تصعيد"];
+
+  return [];
+}
+
+// ===== ROUTES =====
 app.get("/", (req, res) => {
   const K = getKnowledge();
   res.json({
@@ -26,8 +50,10 @@ app.get("/", (req, res) => {
 app.post("/search", async (req, res) => {
   try {
     if (!getKnowledge()) await loadKnowledge();
+
     const q = req.body?.q || req.body?.query || "";
     const out = handleQuery(q, { conversationId: "api-test", choiceMemory });
+
     res.json(out);
   } catch (e) {
     console.error(e);
@@ -35,7 +61,6 @@ app.post("/search", async (req, res) => {
   }
 });
 
-// Webhook من Chatwoot: message_created
 // Webhook من Chatwoot: message_created
 app.post("/chatwoot/webhook", async (req, res) => {
   try {
@@ -67,61 +92,20 @@ app.post("/chatwoot/webhook", async (req, res) => {
 
     if (!getKnowledge()) await loadKnowledge();
 
-    // نمرّر ctx فعليًا (بدونها اختيار 1/2/3 مستحيل يشتغل)
-    const out = handleQuery(content, { conversationId: String(conversationId), choiceMemory });
+    // مهم: للذاكرة داخل engine لازم conversationId يكون String
+    const out = handleQuery(content, {
+      conversationId: String(conversationId),
+      choiceMemory
+    });
 
     // أرسل الرد داخل نفس المحادثة
     await chatwootCreateMessage(conversationId, out.reply);
 
-    // خريطة وسوم بسيطة لتطابق الوسوم الموجودة عندك
-    const mapToChatwootLabels = (tags = []) => {
-      const t = new Set(tags);
-
-      // نتيجة منتج/سعر
-      if (
-        t.has("نتيجة") ||
-        t.has("اختيار") ||
-        t.has("lead_product") ||
-        t.has("selection_made") ||
-        t.has("price_inquiry")
-      ) return ["سعر"];
-
-      // خارج المعرفة
-      if (t.has("خارج_المعرفة")) return ["خارج_المعرفة"];
-
-      // تصعيد
-      if (t.has("تصعيد")) return ["تصعيد"];
-
-      return [];
-    };
-
+    // أضف وسوم حسب نتيجة الدماغ (لكن بصيغة وسوم Chatwoot العربية)
     const labels = mapToChatwootLabels(out.tags || []);
-const mapToChatwootLabels = (tags = []) => {
-  const t = new Set(tags);
-
-  // منتجات/سعر
-  if (
-    t.has("نتيجة") ||
-    t.has("اختيار") ||
-    t.has("lead_product") ||
-    t.has("selection_made") ||
-    t.has("price_inquiry")
-  ) return ["سعر"];
-
-  // خارج المعرفة
-  if (t.has("خارج_المعرفة")) return ["خارج_المعرفة"];
-
-  // تصعيد
-  if (t.has("تصعيد")) return ["تصعيد"];
-
-  return [];
-};
-
-const labels = mapToChatwootLabels(out.tags || []);
-if (labels.length) {
-  await chatwootSetLabels(conversationId, labels);
-}
-
+    if (labels.length) {
+      await chatwootSetLabels(conversationId, labels);
+    }
 
     return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
   } catch (e) {
