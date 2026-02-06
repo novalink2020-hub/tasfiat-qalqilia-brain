@@ -19975,11 +19975,12 @@
     "تل ابيب": "inside_1948",
     "نتانيا": "inside_1948",
     "هرتسيليا": "inside_1948",
-    "نابلس": "nablus",
-    "الخليل": "hebron",
-    "خليل": "hebron",
-    "اريحا": "jericho",
-    "بيت لحم": "bethlehem",
-    "رام الله": "ramallah"
+    "نابلس": "west_bank",
+    "الخليل": "west_bank",
+    "خليل": "west_bank",
+    "اريحا": "west_bank",
+    "أريحا": "west_bank",
+    "بيت لحم": "west_bank",
+    "رام الله": "west_bank"
   }
 }
