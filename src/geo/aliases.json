@@ -21,13 +21,13 @@
     "نتانيا": "inside_1948",
     "herzliya": "inside_1948",
     "هرتسيليا": "inside_1948",
-     "نابلس": "nablus",
-  "الخليل": "hebron",
-  "أريحا": "jericho",
-  "اريحا": "jericho",
-  "خليل": "hebron",
-  "القدس": "jerusalem",
-  "بيت لحم": "bethlehem",
-  "رام الله": "ramallah"
+     "نابلس": "west_bank",
+  "الخليل": "west_bank",
+  "أريحا": "west_bank",
+  "اريحا": "west_bank",
+  "خليل": "west_bank",
+  "القدس": "west_bank",
+  "بيت لحم": "west_bank",
+  "رام الله": "west_bank"
   }
 }
