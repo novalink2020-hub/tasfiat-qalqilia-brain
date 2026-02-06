@@ -12,9 +12,10 @@ function normalizeKey(s) {
   let x = String(s || "").trim();
   if (!x) return "";
 
+  // remove HTML tags if any
   x = x.replace(/<[^>]+>/g, " ");
 
-  // توحيد العربية
+  // Arabic normalization (for matching variants)
   x = x
     .replace(/[إأآ]/g, "ا")
     .replace(/ى/g, "ي")
@@ -31,34 +32,58 @@ function normalizeKey(s) {
   return x;
 }
 
+// Generate extra Arabic variants for common typing differences
+function addArabicVariants(original) {
+  const out = new Set();
+  const k = normalizeKey(original);
+  if (!k) return out;
+
+  out.add(k);
+
+  // قلقيلية / قلقيليه (ending variants)
+  if (k.endsWith("ية")) out.add(k.slice(0, -2) + "يه");
+  if (k.endsWith("يه")) out.add(k.slice(0, -2) + "ية");
+
+  // ال التعريف sometimes dropped
+  if (k.startsWith("ال")) out.add(k.slice(2));
+
+  return out;
+}
+
 function loadGeoNamesTxt(txtPath, defaultZone) {
   const lines = fs.readFileSync(txtPath, "utf8").split("\n");
-  const map = new Map();
+
+  const keyToZone = new Map();
+  const idToZone = new Map();
 
   for (const line of lines) {
     if (!line) continue;
     const cols = line.split("\t");
     if (cols.length < 9) continue;
 
+    const geonameid = cols[0];
     const name = cols[1] || "";
     const asciiname = cols[2] || "";
     const alternatenames = cols[3] || "";
     const featureClass = cols[6] || "";
 
-    // P = populated places (مدن/قرى)
+    // P = populated places (cities/villages)
     if (featureClass !== "P") continue;
+
+    idToZone.set(String(geonameid), defaultZone);
 
     const candidates = [name, asciiname];
     const altList = alternatenames.split(",").slice(0, 25);
     for (const a of altList) candidates.push(a);
 
     for (const c of candidates) {
-      const k = normalizeKey(c);
-      if (!k) continue;
-      if (!map.has(k)) map.set(k, defaultZone);
+      for (const k of addArabicVariants(c)) {
+        if (!keyToZone.has(k)) keyToZone.set(k, defaultZone);
+      }
     }
   }
-  return map;
+
+  return { keyToZone, idToZone };
 }
 
 function mergePreferFirst(base, extra) {
@@ -67,30 +92,82 @@ function mergePreferFirst(base, extra) {
   }
 }
 
+function loadAlternateNamesV2(txtPath, idToZoneAll) {
+  // Columns (alternateNamesV2):
+  // 0 alternateNameId
+  // 1 geonameid
+  // 2 isolanguage (e.g. ar, he, en) - may be empty
+  // 3 alternate name
+  // 4 isPreferredName
+  // 5 isShortName
+  // 6 isColloquial
+  // 7 isHistoric
+  // 8 from
+  // 9 to
+  const lines = fs.readFileSync(txtPath, "utf8").split("\n");
+  const out = new Map();
+
+  // We mainly care about Arabic + Hebrew + English names
+  const allowedLang = new Set(["ar", "he", "en"]);
+
+  for (const line of lines) {
+    if (!line) continue;
+    const cols = line.split("\t");
+    if (cols.length < 4) continue;
+
+    const geonameid = String(cols[1] || "");
+    const lang = String(cols[2] || "").trim();
+    const altName = cols[3] || "";
+
+    if (!geonameid || !altName) continue;
+    if (!idToZoneAll.has(geonameid)) continue; // only our PS/IL populated places
+    if (lang && !allowedLang.has(lang)) continue;
+
+    const zone = idToZoneAll.get(geonameid);
+
+    for (const k of addArabicVariants(altName)) {
+      if (!out.has(k)) out.set(k, zone);
+    }
+  }
+  return out;
+}
+
 function main() {
-  const [psTxt, ilTxt] = process.argv.slice(2);
+  const [psTxt, ilTxt, altV2Txt] = process.argv.slice(2);
   if (!psTxt || !ilTxt) {
-    console.error("Usage: node scripts/build-places.mjs <PS.txt> <IL.txt>");
+    console.error("Usage: node scripts/build-places.mjs <PS.txt> <IL.txt> [alternateNamesV2.txt]");
     process.exit(1);
   }
 
   const aliasesFile = readJson(ALIASES_PATH);
   const aliases = aliasesFile?.aliases || {};
 
-  // PS => west_bank (وشحن ضواحي القدس سيُحسم عبر aliases)
-  const psMap = loadGeoNamesTxt(psTxt, "west_bank");
-  // IL => inside_1948
-  const ilMap = loadGeoNamesTxt(ilTxt, "inside_1948");
+  // Base: PS => west_bank (and suburbs handled via aliases)
+  const ps = loadGeoNamesTxt(psTxt, "west_bank");
+  // Base: IL => inside_1948
+  const il = loadGeoNamesTxt(ilTxt, "inside_1948");
 
-  // دمج مع أولوية PS ثم IL
+  // merged id->zone (for alternateNamesV2)
+  const idToZoneAll = new Map();
+  for (const [id, z] of ps.idToZone.entries()) idToZoneAll.set(id, z);
+  for (const [id, z] of il.idToZone.entries()) if (!idToZoneAll.has(id)) idToZoneAll.set(id, z);
+
+  // Merge base keys
   const merged = new Map();
-  mergePreferFirst(merged, psMap);
-  mergePreferFirst(merged, ilMap);
+  mergePreferFirst(merged, ps.keyToZone);
+  mergePreferFirst(merged, il.keyToZone);
 
-  // حقن الـ aliases (أولوية أعلى من كل شيء)
+  // Add alternateNamesV2 (Arabic/Hebrew/English) if provided
+  if (altV2Txt && fs.existsSync(altV2Txt)) {
+    const altMap = loadAlternateNamesV2(altV2Txt, idToZoneAll);
+    mergePreferFirst(merged, altMap);
+  }
+
+  // Inject manual aliases with highest priority
   for (const [kRaw, zone] of Object.entries(aliases)) {
-    const k = normalizeKey(kRaw);
-    if (k) merged.set(k, zone);
+    for (const k of addArabicVariants(kRaw)) {
+      merged.set(k, zone);
+    }
   }
 
   const out = {
