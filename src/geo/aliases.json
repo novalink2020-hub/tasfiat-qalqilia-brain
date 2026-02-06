@@ -21,5 +21,13 @@
     "نتانيا": "inside_1948",
     "herzliya": "inside_1948",
     "هرتسيليا": "inside_1948"
+     "نابلس": "nablus",
+  "الخليل": "hebron",
+  "أريحا": "jericho",
+  "اريحا": "jericho",
+  "خليل": "hebron",
+  "القدس": "jerusalem",
+  "بيت لحم": "bethlehem",
+  "رام الله": "ramallah"
   }
 }
