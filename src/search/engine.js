@@ -24,7 +24,23 @@ function normalizeText(s) {
 function normLower(v) {
   return String(v || "").toLowerCase();
 }
-
+function normalizeArabic(s) {
+  const x = String(s || "");
+  return x
+    // remove tashkeel
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, "")
+    // unify alef forms
+    .replace(/[إأآٱ]/g, "ا")
+    // unify yaa / alef maqsura
+    .replace(/ى/g, "ي")
+    // unify ta marbuta (اختياري لكنه عملي للبحث)
+    .replace(/ة/g, "ه")
+    // remove tatweel
+    .replace(/ـ/g, "")
+    // reduce repeated letters (جومااا → جوما)
+    .replace(/(.)\1{2,}/g, "$1$1")
+    .trim();
+}
 function tokenizeArabicSafe(s) {
   return String(s || "")
     .toLowerCase()
@@ -32,6 +48,25 @@ function tokenizeArabicSafe(s) {
     .split(/\s+/)
     .map(t => t.trim())
     .filter(t => t.length >= 2);
+}
+function extractMoneyQuery(queryLower) {
+  // مثال: "200 شيكل" أو "200₪"
+  const m = String(queryLower || "").match(/(\d{2,5})\s*(شيكل|₪)/);
+  return m ? Number(m[1]) : null;
+}
+
+function extractGenderHint(queryLower) {
+  const q = String(queryLower || "");
+  if (/رجالي|للرجال|شباب/.test(q)) return "male";
+  if (/نسائي|للنساء|بنات|ستاتي|حريمي/.test(q)) return "female";
+  if (/ولادي|أولادي|اطفال|أطفال|صبيان/.test(q)) return "kids_male";
+  if (/بناتي|أطفال بنات|بنوتي/.test(q)) return "kids_female";
+  return null;
+}
+
+function extractDiscountHint(queryLower) {
+  const q = String(queryLower || "");
+  return /خصم|تنزيلات|عروض|sale|off|تخفيض/.test(q);
 }
 
 function extractSizeQuery(queryLower) {
@@ -133,8 +168,9 @@ function searchKnowledge(q) {
   if (!KNOWLEDGE?.items?.length) return { type: "none", askedSize: null };
 
   const raw = normalizeText(q);
-  const queryLower = raw.toLowerCase();
-  const tokens = tokenizeArabicSafe(raw);
+const rawNorm = normalizeArabic(raw);
+const queryLower = rawNorm.toLowerCase();
+const tokens = tokenizeArabicSafe(rawNorm);
   const askedSize = extractSizeQuery(queryLower);
 
   const m = queryLower.match(/\/product\/([a-z0-9\-]+)/i);
@@ -155,10 +191,28 @@ function searchKnowledge(q) {
   const scored = [];
   for (const x of KNOWLEDGE.items) {
     const slug = normLower(x.product_slug);
-    const name = normLower(x.name);
-    const keywords = normLower(x.keywords);
-    const tags = normLower(x.brand_tags);
-    const sizes = normLower(x.sizes);
+const name = normLower(x.name);
+const keywords = normLower(x.keywords);
+const tags = normLower(x.brand_tags);
+
+const brandStd = normLower(x.brand_std);
+const brandTags = normLower(x.brand_tags);
+const gender = normLower(x.gender);
+const gender2 = normLower(x.gender_2);
+const ageGroup = normLower(x.age_group);
+
+const sizes = normLower(x.sizes);
+const sizesMin = String(x.sizes_min ?? "");
+const sizesMax = String(x.sizes_max ?? "");
+
+const availability = normLower(x.availability);
+const pageUrl = normLower(x.page_url);
+const imageUrl = normLower(x.image_url);
+
+const price = Number(x.price || 0);
+const oldPrice = Number(x.old_price || 0);
+const hasDiscount = !!x.has_discount;
+const discountPercent = Number(x.discount_percent || 0);
 
     const isPolicyLike =
       slug.startsWith("policy-") ||
@@ -172,21 +226,64 @@ function searchKnowledge(q) {
       const list = sizes.split(",").map(s => s.trim());
       if (!list.includes(String(askedSize))) continue;
     }
+const moneyQ = extractMoneyQuery(queryLower);
+const genderHint = extractGenderHint(queryLower);
+const wantsDiscount = extractDiscountHint(queryLower);
 
     let score = 0;
 
     // نقاط قوية
     if (name === queryLower) score += 80;
     if (slug && queryLower === slug) score += 90;
+    // Boost قوي للأكواد/السلاج — لأنه نية شراء مباشرة
+if (slug && /[a-z]+\d+/i.test(queryLower) && slug.includes(queryLower)) score += 70;
+
+// Boost للماركة القياسية
+if (brandStd && (brandStd === queryLower || brandStd.includes(queryLower))) score += 35;
+
+// جندر/فئة
+if (genderHint) {
+  // نرفع اللي يطابق الجمهور المستهدف
+  if (gender.includes("رجال") || gender.includes("male")) {
+    if (genderHint === "male") score += 25;
+  }
+  if (gender.includes("نساء") || gender.includes("female")) {
+    if (genderHint === "female") score += 25;
+  }
+  if (gender.includes("ولادي") || gender.includes("kids")) {
+    if (genderHint === "kids_male" || genderHint === "kids_female") score += 18;
+  }
+  if (gender.includes("بناتي")) {
+    if (genderHint === "kids_female") score += 22;
+  }
+}
+
+// الخصومات
+if (wantsDiscount) {
+  if (hasDiscount) score += 18;
+  if (discountPercent >= 20) score += 6;
+}
+
+// السعر (تلميح)
+if (moneyQ && price > 0) {
+  const diff = Math.abs(price - moneyQ);
+  if (diff <= 20) score += 14;
+  else if (diff <= 50) score += 8;
+}
     if (name.includes(queryLower) || queryLower.includes(name)) score += 35;
     if (slug && queryLower.includes(slug)) score += 60;
 
-    const hay = `${name} ${keywords} ${tags} ${sizes} ${slug}`;
+    const hay = `${name} ${keywords} ${tags} ${brandStd} ${brandTags} ${gender} ${gender2} ${ageGroup} ${sizes} ${sizesMin} ${sizesMax} ${availability} ${pageUrl} ${imageUrl} ${slug}`;
     for (const t of tokens) {
       if (!t) continue;
       if (name.includes(t)) score += 10;
       if (keywords.includes(t)) score += 8;
       if (tags.includes(t)) score += 7;
+      if (brandStd.includes(t)) score += 9;
+if (gender.includes(t)) score += 6;
+if (gender2.includes(t)) score += 6;
+if (ageGroup.includes(t)) score += 5;
+if (availability.includes(t)) score += 3;
       if (sizes.includes(t)) score += 12;
       if (slug.includes(t)) score += 9;
       if (hay.includes(t)) score += 2;
