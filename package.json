@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "main": "server.js",
-  "scripts": {
-    "start": "node src/server.js"
-  },
+"scripts": {
+  "start": "node scripts/sync-places.js && node src/server.js"
+},
 "dependencies": {
   "express": "^4.19.2",
   "cors": "^2.8.5"
