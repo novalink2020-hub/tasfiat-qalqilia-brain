@@ -1,5 +1,6 @@
 // Stage 2: Human-friendly replies + numbered choices + basic intent handling (Chatwoot-safe)
 import { getKnowledge } from "../knowledge/loader.js";
+import { classifyCityZone } from "../geo/classifier.js";
 import { PROFILE } from "../client.profile.js";
 import { buildReplyFromItem } from "../replies/presenter.js";
 
@@ -96,36 +97,33 @@ function extractCityFromText(textLower) {
 }
 
 function classifyShipping(cityRaw) {
-  const city = String(cityRaw || "").toLowerCase().trim();
+  const city = String(cityRaw || "").trim();
   if (!city) return { fee: null, zone: "unknown" };
 
-  // مدن/دول خارج النطاق (مؤشرات سريعة)
+  // إشارات خارج النطاق (اختياري إبقاؤه)
+  const cityLower = city.toLowerCase();
   const foreignHints = ["تركيا", "turkey", "istanbul", "ankara", "london", "uk", "usa", "أمريكا", "المانيا", "germany"];
-  if (foreignHints.some(h => city.includes(String(h).toLowerCase()))) {
+  if (foreignHints.some(h => cityLower.includes(String(h).toLowerCase()))) {
     return { fee: null, zone: "outside" };
   }
 
-  // ضواحي القدس = 20
-  if (JERUSALEM_SUBURBS_20.some(k => city.includes(String(k).toLowerCase()))) {
-    return { fee: PROFILE.shipping.fees_ils.west_bank, zone: "jerusalem_suburbs" };
+  const zone = classifyCityZone(city); // west_bank | jerusalem_suburbs | jerusalem | inside_1948 | null
+
+  if (!zone) return { fee: null, zone: "unknown" };
+
+  if (zone === "inside_1948") {
+    return { fee: PROFILE.shipping.fees_ils.inside_1948, zone };
   }
 
-  // القدس (مناطق داخل القدس) = 30
-  if (JERUSALEM_AREAS_30.some(k => city.includes(String(k).toLowerCase()))) {
-    return { fee: PROFILE.shipping.fees_ils.jerusalem, zone: "jerusalem" };
+  if (zone === "jerusalem") {
+    return { fee: PROFILE.shipping.fees_ils.jerusalem, zone };
   }
 
-  // الداخل 48 = 75 (حسب أمثلة البروفايل)
-  if (PROFILE.shipping.inside_1948_examples.some(c => city.includes(String(c).toLowerCase()))) {
-    return { fee: PROFILE.shipping.fees_ils.inside_1948, zone: "inside_1948" };
+  // west_bank + jerusalem_suburbs = 20
+  if (zone === "west_bank" || zone === "jerusalem_suburbs") {
+    return { fee: PROFILE.shipping.fees_ils.west_bank, zone };
   }
 
-  // الضفة (حسب أمثلة البروفايل) = 20
-  if (PROFILE.shipping.west_bank_examples?.some?.(c => city.includes(String(c).toLowerCase()))) {
-    return { fee: PROFILE.shipping.fees_ils.west_bank, zone: "west_bank" };
-  }
-
-  // مدينة غير معروفة: لا نخمن
   return { fee: null, zone: "unknown" };
 }
 
