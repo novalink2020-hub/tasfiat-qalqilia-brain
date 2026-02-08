@@ -236,7 +236,7 @@ const queryLower = normalizeForMatch(q);
 
 const tokens = tokenize(q);
 
-const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(queryLower);
+const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(rawSlug);
 const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
   
   const m = queryLower.match(/\/product\/([a-z0-9\-]+)/i);
@@ -254,7 +254,8 @@ const directSlug = KNOWLEDGE.items.find(x => {
   const slug = normLower(x.product_slug);
   return slug && (slug === rawSlug || slug === queryLower);
 });
-if (directSlug) return { type: "hit", item: directSlug, askedSize };
+if (directSlug && isUsableProductItem(directSlug)) return { type: "hit", item: directSlug, askedSize };
+if (directSlug) return { type: "none", askedSize };
 
 // إذا slug موجود لكنه ناقص بيانات: لا نعرضه كمنتج
 if (directSlug) return { type: "none", askedSize };
@@ -402,12 +403,6 @@ if (top.score < minScore) return { type: "none", askedSize };
 
 // ====== Main handler ======
 // Router شامل مبكر: أي رسالة تبدو “منتج/شراء” → نبحث مباشرة قبل أي أسئلة عامة
-if (isProductIntent(raw)) {
-  const res = searchKnowledge(raw);
-
-  if (res.type === "hit") {
-    return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ["product_hit"] };
-  }
 
   if (res.type === "clarify") {
     const KNOWLEDGE = getKnowledge();
@@ -574,7 +569,7 @@ if (fee === null) {
   if (genericProductAsk && raw.length <= 30) {
     const hasSize = !!extractSizeQuery(ql);
     const hasMoney = /\d+\s*(شيكل|₪)/.test(ql);
-    const hasBrandHint = /joma|skechers|nike|adidas|puma|crocs|mizuno|brooks|asics|diadora/i.test(raw);
+    const hasBrandHint = /joma|skechers|nike|adidas|puma|crocs|mizuno|brooks|asics|diadora|جوما|جومة|سكتشرز|سكيتشرز|نايك|أديداس|اديداس|بوما|كروكس|ميزونو|بروكس|اسكس|ديادورا/i.test(raw);
 
     if (!hasSize && !hasMoney && !hasBrandHint) {
       return {
@@ -668,9 +663,16 @@ if (isProductIntent(raw)) {
 
   if (res.type === "clarify") {
     // نعرض خيارات بدل سؤال عام
-    const lines = res.candidates.slice(0, 3).map((c, i) =>
-      `${c.item.name} — ${c.item.price} شيكل — ${c.item.availability || "متوفر"}`
-    );
+    const KNOWLEDGE = getKnowledge();
+const items = (res.options || [])
+  .map(o => KNOWLEDGE.items.find(x => String(x.product_slug || "") === String(o.slug || "")))
+  .filter(Boolean)
+  .slice(0, 3);
+
+const lines = items.map(it =>
+  `${it.name} — ${it.price} شيكل — ${it.availability || "متوفر"}`
+);
+
     return {
       ok: true,
       found: false,
