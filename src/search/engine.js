@@ -1,6 +1,7 @@
 // Stage 2: Human-friendly replies + numbered choices + basic intent handling (Chatwoot-safe)
 import { getKnowledge } from "../knowledge/loader.js";
 import { classifyCityZone } from "../geo/classifier.js";
+import { detectOutOfScopePlace } from "../geo/out-of-scope.js";
 import { PROFILE } from "../client.profile.js";
 import { buildReplyFromItem } from "../replies/presenter.js";
 import fs from "fs";
@@ -157,6 +158,9 @@ function extractCityFromText(textLower) {
 function classifyShipping(cityRaw) {
   const city = String(cityRaw || "").trim();
   if (!city) return { fee: null, zone: "unknown" };
+  const out = detectOutOfScopePlace(city);
+if (out.scope === "outside_palestine") return { fee: null, zone: "outside", policy: out.policy };
+if (out.scope === "gaza") return { fee: null, zone: "gaza", policy: out.policy };
 
   // إشارات خارج النطاق (اختياري إبقاؤه)
   const cityLower = city.toLowerCase();
