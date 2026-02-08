@@ -3,6 +3,9 @@ import { getKnowledge } from "../knowledge/loader.js";
 import { classifyCityZone } from "../geo/classifier.js";
 import { PROFILE } from "../client.profile.js";
 import { buildReplyFromItem } from "../replies/presenter.js";
+import fs from "fs";
+import path from "path";
+import { normalizeForMatch, tokenize } from "../text/normalize.js";
 
 function stripHtml(s) {
   return String(s || "")
@@ -78,6 +81,26 @@ function isOnlySizeQuery(raw) {
   const s = normalizeText(raw);
   return /^\d{2}(\.\d)?$/.test(s);
 }
+let FOREIGN_CACHE = null;
+
+function loadForeignPlacesOnce() {
+  if (FOREIGN_CACHE) return FOREIGN_CACHE;
+  const p = path.resolve("src/text/foreign_places.json");
+  const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+  const arr = Array.isArray(raw?.places) ? raw.places : [];
+  // نخزنها مطبعة وجاهزة للمطابقة
+  FOREIGN_CACHE = arr.map(x => normalizeForMatch(x)).filter(Boolean);
+  return FOREIGN_CACHE;
+}
+
+function isForeignPlace(text) {
+  const q = normalizeForMatch(text);
+  if (!q) return false;
+  const list = loadForeignPlacesOnce();
+  // مطابقة احتوائية بعد التطبيع
+  return list.some(k => k && (q.includes(k) || k.includes(q)));
+}
+
 
 function pickOpening() {
   const arr = ["تمام 😊", "ولا يهمك 😊", "حاضر 👌", "يسعدني 😊", "على راسي 😊"];
@@ -137,10 +160,10 @@ function classifyShipping(cityRaw) {
 
   // إشارات خارج النطاق (اختياري إبقاؤه)
   const cityLower = city.toLowerCase();
-  const foreignHints = ["تركيا", "turkey", "istanbul", "ankara", "london", "uk", "usa", "أمريكا", "المانيا", "germany"];
-  if (foreignHints.some(h => cityLower.includes(String(h).toLowerCase()))) {
-    return { fee: null, zone: "outside" };
-  }
+if (isForeignPlace(city)) {
+  return { fee: null, zone: "outside" };
+}
+
 
   const zone = classifyCityZone(city); // west_bank | jerusalem_suburbs | jerusalem | inside_1948 | null
 
@@ -167,10 +190,9 @@ function searchKnowledge(q) {
   const KNOWLEDGE = getKnowledge();
   if (!KNOWLEDGE?.items?.length) return { type: "none", askedSize: null };
 
-  const raw = normalizeText(q);
-const rawNorm = normalizeArabic(raw);
-const queryLower = rawNorm.toLowerCase();
-const tokens = tokenizeArabicSafe(rawNorm);
+const queryLower = normalizeForMatch(q);
+const tokens = tokenize(q);
+
   const askedSize = extractSizeQuery(queryLower);
 
   const m = queryLower.match(/\/product\/([a-z0-9\-]+)/i);
@@ -190,6 +212,16 @@ const tokens = tokenizeArabicSafe(rawNorm);
 
   const scored = [];
   for (const x of KNOWLEDGE.items) {
+    // حماية UX: لا نعرض منتجات ناقصة
+const hasName = String(x?.name || "").trim().length >= 2;
+const hasUrl = String(x?.page_url || "").trim().startsWith("http");
+const hasSlug = String(x?.product_slug || "").trim().length >= 2;
+if (!hasSlug || !hasUrl) continue;
+// (اختياري) شدّد أكثر:
+// const hasPrice = Number(x?.price || 0) > 0;
+// if (!hasName || !hasPrice) continue;
+if (!hasName) continue;
+
     const slug = normLower(x.product_slug);
 const name = normLower(x.name);
 const keywords = normLower(x.keywords);
