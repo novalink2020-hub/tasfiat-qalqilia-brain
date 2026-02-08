@@ -232,6 +232,8 @@ function searchKnowledge(q) {
   if (!KNOWLEDGE?.items?.length) return { type: "none", askedSize: null };
 
 const queryLower = normalizeForMatch(q);
+  const rawSlug = String(q || "").trim().toLowerCase(); // للـ slug كما هو بدون تطبيع
+
 const tokens = tokenize(q);
 
 const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(queryLower);
@@ -248,12 +250,12 @@ if (slugFromUrl) {
 }
 
   // exact slug
-  const directSlug = KNOWLEDGE.items.find(x => {
-    const slug = normLower(x.product_slug);
-    return slug && slug === queryLower;
-  });
-  
-if (directSlug && isUsableProductItem(directSlug)) return { type: "hit", item: directSlug, askedSize };
+const directSlug = KNOWLEDGE.items.find(x => {
+  const slug = normLower(x.product_slug);
+  return slug && (slug === rawSlug || slug === queryLower);
+});
+if (directSlug) return { type: "hit", item: directSlug, askedSize };
+
 // إذا slug موجود لكنه ناقص بيانات: لا نعرضه كمنتج
 if (directSlug) return { type: "none", askedSize };
 
@@ -399,9 +401,51 @@ if (top.score < minScore) return { type: "none", askedSize };
 }
 
 // ====== Main handler ======
-export function handleQuery(q, ctx = {}) {
-  const raw = normalizeText(q);
-  const ql = raw.toLowerCase();
+// Router شامل مبكر: أي رسالة تبدو “منتج/شراء” → نبحث مباشرة قبل أي أسئلة عامة
+if (isProductIntent(raw)) {
+  const res = searchKnowledge(raw);
+
+  if (res.type === "hit") {
+    return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ["product_hit"] };
+  }
+
+  if (res.type === "clarify") {
+    const KNOWLEDGE = getKnowledge();
+    const items = res.options
+      .map(o => KNOWLEDGE.items.find(x => String(x.product_slug || "") === String(o.slug || "")))
+      .filter(Boolean)
+      .slice(0, 3);
+
+    if (items.length) {
+      const lines = items.map((it) => `${it.name} — ${it.price} شيكل — ${it.availability || "متوفر"}`);
+      return {
+        ok: true,
+        found: false,
+        reply: `تمام 😊 لقيت أكثر من خيار، اختر رقم:\n\n${lines.join("\n")}\nاكتب رقم الخيار فقط (مثال: 1).`,
+        tags: ["product_clarify"]
+      };
+    }
+  }
+
+  // إذا واضح أنه slug/كود لكن لم نجد نتيجة: أعطه رابط مباشر بدل “ما قدرت أحدد”
+  if (looksLikeProductSlug(rawSlug) || looksLikeProductCode(rawSlug)) {
+    const slugGuess = rawSlug;
+    return {
+      ok: true,
+      found: false,
+      reply: `آسفين 🙏 الكود واضح بس بيانات المنتج عندنا مش مكتملة أو مش موجودة حاليًا. هذا رابط الصفحة للتأكد:\nhttps://tasfiat-qalqilia.ps/ar/product/${slugGuess}`,
+      tags: ["product_none"]
+    };
+  }
+
+  return {
+    ok: true,
+    found: false,
+    reply: "تمام 😊 اكتب اسم المنتج أو الماركة + (رجالي/نسائي/ولادي) وإذا بتقدر المقاس، وبطلعلك أفضل الخيارات فورًا.",
+    tags: ["product_none"]
+  };
+}
+
 
   // شكر/إغلاق
   if (/^(شكرا|شكرًا|يسلمو|يسلموا|مشكور|تسلم)\s*$/i.test(raw)) {
