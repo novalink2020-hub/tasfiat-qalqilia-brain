@@ -190,6 +190,13 @@ if (isForeignPlace(city)) {
 }
 
 // ====== Knowledge search ======
+function isUsableProductItem(x) {
+  const hasName = String(x?.name || "").trim().length >= 2;
+  const hasUrl = String(x?.page_url || "").trim().startsWith("http");
+  const hasSlug = String(x?.product_slug || "").trim().length >= 2;
+  return hasName && hasUrl && hasSlug;
+}
+
 function searchKnowledge(q) {
   const KNOWLEDGE = getKnowledge();
   if (!KNOWLEDGE?.items?.length) return { type: "none", askedSize: null };
@@ -197,22 +204,28 @@ function searchKnowledge(q) {
 const queryLower = normalizeForMatch(q);
 const tokens = tokenize(q);
 
-  const askedSize = extractSizeQuery(queryLower);
-
+const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(queryLower);
+const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
+  
   const m = queryLower.match(/\/product\/([a-z0-9\-]+)/i);
   const slugFromUrl = m?.[1] || null;
 
-  if (slugFromUrl) {
-    const hit = KNOWLEDGE.items.find(x => normLower(x.product_slug) === slugFromUrl);
-    if (hit) return { type: "hit", item: hit, askedSize };
-  }
+if (slugFromUrl) {
+  const hit = KNOWLEDGE.items.find(x => normLower(x.product_slug) === slugFromUrl);
+  if (hit && isUsableProductItem(hit)) return { type: "hit", item: hit, askedSize };
+  // إذا موجود لكنه ناقص بيانات: لا نعرض "—"
+  if (hit) return { type: "none", askedSize };
+}
 
   // exact slug
   const directSlug = KNOWLEDGE.items.find(x => {
     const slug = normLower(x.product_slug);
     return slug && slug === queryLower;
   });
-  if (directSlug) return { type: "hit", item: directSlug, askedSize };
+  
+if (directSlug && isUsableProductItem(directSlug)) return { type: "hit", item: directSlug, askedSize };
+// إذا slug موجود لكنه ناقص بيانات: لا نعرضه كمنتج
+if (directSlug) return { type: "none", askedSize };
 
   const scored = [];
   for (const x of KNOWLEDGE.items) {
@@ -313,9 +326,13 @@ if (moneyQ && price > 0) {
     for (const t of tokens) {
       if (!t) continue;
       if (name.includes(t)) score += 10;
-      if (keywords.includes(t)) score += 8;
+      // إذا الاستعلام كلمة واحدة قصيرة (غالبًا ماركة/اسم شائع) نرفع الوزن بشكل واضح
+const isBrandishQuery = (tokens.length === 1 && queryLower.length <= 6);
+if (keywords.includes(t)) score += (isBrandishQuery ? 22 : 8);
+
       if (tags.includes(t)) score += 7;
-      if (brandStd.includes(t)) score += 9;
+const isBrandishQuery2 = (tokens.length === 1 && queryLower.length <= 6);
+if (brandStd.includes(t)) score += (isBrandishQuery2 ? 26 : 9);
 if (gender.includes(t)) score += 6;
 if (gender2.includes(t)) score += 6;
 if (ageGroup.includes(t)) score += 5;
@@ -336,7 +353,9 @@ if (availability.includes(t)) score += 3;
 
   const top = scored[0];
   const second = scored[1];
-  if (top.score < 25) return { type: "none", askedSize };
+const isBrandishQueryFinal = (tokens.length === 1 && queryLower.length <= 6);
+const minScore = isBrandishQueryFinal ? 12 : 25;
+if (top.score < minScore) return { type: "none", askedSize };
 
   if (second && second.score >= top.score - 5) {
     const options = scored.slice(0, 4).map(s => ({
