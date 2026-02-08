@@ -101,6 +101,36 @@ function isForeignPlace(text) {
   // مطابقة احتوائية بعد التطبيع
   return list.some(k => k && (q.includes(k) || k.includes(q)));
 }
+function looksLikeProductSlug(s) {
+  const q = String(s || "").trim();
+  // مثل: skechers-405000n-bkrd / nike-dd1095-608
+  return /^[a-z0-9]+(?:-[a-z0-9]+){2,}$/i.test(q);
+}
+
+function looksLikeProductCode(s) {
+  const q = String(s || "").trim();
+  // مثل: TOJS2401TF / 9Q1306-X0L / DD1095 608 (بعد التنظيف)
+  return /[a-z]{2,}\d{2,}[a-z0-9\-]{0,}/i.test(q);
+}
+
+function isProductIntent(rawText) {
+  const q = String(rawText || "").toLowerCase();
+
+  // 1) slug أو كود → منتج مباشرة
+  if (looksLikeProductSlug(q) || looksLikeProductCode(q)) return true;
+
+  // 2) كلمات شراء/منتج شائعة (لغة المستخدم)
+  if (/(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|شنطه|شنطة|عطر|برفان|كرة قدم|مدارس|جري|مشي|تدريب|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(q)) {
+    return true;
+  }
+
+  // 3) اسم ماركة (بدون تعداد يدوي لكل الماركات):
+  // نعتبر أي كلمة واحدة طولها 3-8 أحرف عربية/لاتينية قد تكون ماركة شائعة، ونترك البحث يقرر.
+  const t = q.trim();
+  if (t.split(/\s+/).length === 1 && t.length >= 3 && t.length <= 10) return true;
+
+  return false;
+}
 
 
 function pickOpening() {
@@ -584,6 +614,35 @@ if (fee === null) {
       tags: ["lead_branches", "needs_clarification"]
     };
   }
+// Router شامل: إذا الرسالة تبدو “منتج” لا نسأل سؤال نية عام — نبحث مباشرة
+if (isProductIntent(raw)) {
+  const res = searchKnowledge(raw);
+
+  if (res.type === "hit") {
+    return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ["product_hit"] };
+  }
+
+  if (res.type === "clarify") {
+    // نعرض خيارات بدل سؤال عام
+    const lines = res.candidates.slice(0, 3).map((c, i) =>
+      `${c.item.name} — ${c.item.price} شيكل — ${c.item.availability || "متوفر"}`
+    );
+    return {
+      ok: true,
+      found: false,
+      reply: `تمام 😊 لقيت أكثر من خيار، اختر رقم:\n\n${lines.join("\n")}\nاكتب رقم الخيار فقط (مثال: 1).`,
+      tags: ["product_clarify"]
+    };
+  }
+
+  // res.type === "none"
+  return {
+    ok: true,
+    found: false,
+    reply: "تمام 😊 ما قدرت أحدد المنتج بالضبط من الرسالة. اكتب اسم المنتج أو الكود/الرابط وبساعدك فورًا.",
+    tags: ["product_none"]
+  };
+}
 
   // fallback
   return {
