@@ -429,15 +429,36 @@ export function handleQuery(q, ctx = {}) {
     }
 
     const { fee, zone } = classifyShipping(city);
-    if (fee === null) {
-      return {
-        ok: true,
-        found: false,
-        reply:
-          "تمام 😊 بس حتى أعطيك رقم صحيح: المدينة هاي **داخل فلسطين** ولا **القدس** ولا **الداخل (48)**؟ اكتبها/وضّحلي وبطلعلك الرسوم فورًا.",
-        tags: ["lead_shipping", "needs_clarification", zone]
-      };
-    }
+if (fee === null) {
+  // خارج فلسطين
+  if (zone === "outside") {
+    return {
+      ok: true,
+      found: false,
+      reply: "آسفين 🙏 التوصيل متاح **داخل فلسطين فقط**.",
+      tags: ["lead_shipping", "out_of_scope", zone]
+    };
+  }
+
+  // قطاع غزة
+  if (zone === "gaza") {
+    return {
+      ok: true,
+      found: false,
+      reply: "آسفين 🙏 حاليًا **ما في توصيل لقطاع غزة**.",
+      tags: ["lead_shipping", "out_of_scope", zone]
+    };
+  }
+
+  // غير معروف داخل فلسطين → استيضاح (تعديل النص المطلوب)
+  return {
+    ok: true,
+    found: false,
+    reply: "تمام 😊 بس حتى أعطيك رقم صحيح: المدينة هاي في **الضفة** ولا **القدس** ولا **الداخل (48)**؟ اكتبها/وضّحلي وبطلعلك الرسوم فورًا.",
+    tags: ["lead_shipping", "needs_clarification", zone]
+  };
+}
+
 
     const daysMin = PROFILE.shipping.days_min;
     const daysMax = PROFILE.shipping.days_max;
