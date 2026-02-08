@@ -1,25 +1,13 @@
 import fs from "fs";
+import { normalizeForMatch } from "../text/normalize.js";
 import path from "path";
 
 let CACHE = null;
 
 function normalizeKey(s) {
-  let x = String(s || "").trim();
-  if (!x) return "";
-  x = x.replace(/<[^>]+>/g, " ");
-  x = x
-    .replace(/[إأآ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/ؤ/g, "و")
-    .replace(/ئ/g, "ي");
-  x = x
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s\-]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return x;
+  return normalizeForMatch(s);
 }
+
 
 export function loadPlacesOnce() {
   if (CACHE) return CACHE;
