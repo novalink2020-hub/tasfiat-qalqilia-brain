@@ -101,76 +101,6 @@ function isForeignPlace(text) {
   // مطابقة احتوائية بعد التطبيع
   return list.some(k => k && (q.includes(k) || k.includes(q)));
 }
-
-
-// ====== Brand dictionary (canonical + synonyms) ======
-let BRAND_CACHE = null;
-
-function loadBrandDictionaryOnce() {
-  if (BRAND_CACHE) return BRAND_CACHE;
-  const p = path.resolve("src/search/brand.dictionary.json");
-  const raw = JSON.parse(fs.readFileSync(p, "utf8"));
-  const brands = Array.isArray(raw?.brands) ? raw.brands : [];
-
-  const entries = [];
-  for (const b of brands) {
-    const canonical = String(b?.canonical || "").trim();
-    if (!canonical) continue;
-    const syns = Array.isArray(b?.synonyms) ? b.synonyms : [];
-    // نضمن إدراج الـ canonical نفسه كسينونيم
-    const all = [canonical, ...syns].map(s => String(s || "").trim()).filter(Boolean);
-
-    for (const s of all) {
-      const norm = normalizeForMatch(normalizeArabic(s));
-      if (!norm) continue;
-      // تجنّب سينونيمات قصيرة جدًا
-      if (norm.length < 3) continue;
-      entries.push({ canonical, norm });
-    }
-  }
-
-  // إزالة التكرار
-  const seen = new Set();
-  BRAND_CACHE = entries.filter(e => {
-    const k = `${e.canonical}__${e.norm}`;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-
-  return BRAND_CACHE;
-}
-
-function detectBrandCanonical(rawText) {
-  const qNorm = normalizeForMatch(normalizeArabic(rawText));
-  if (!qNorm) return null;
-
-  const tokens = qNorm.split(/\s+/).filter(Boolean);
-  const dict = loadBrandDictionaryOnce();
-
-  // 1) تطابق كامل
-  for (const e of dict) {
-    if (qNorm === e.norm) return e.canonical;
-  }
-
-  // 2) تطابق على مستوى توكن (أفضل للتقاط "سكيتشرز!!!" وغيره)
-  const tokenSet = new Set(tokens);
-  for (const e of dict) {
-    if (tokenSet.has(e.norm)) return e.canonical;
-  }
-
-  // 3) احتواء (للنصوص الأطول)
-  // نحاول احتواء آمن: " ... syn ... "
-  const padded = ` ${qNorm} `;
-  for (const e of dict) {
-    const needle = ` ${e.norm} `;
-    if (padded.includes(needle)) return e.canonical;
-  }
-
-  return null;
-}
-
-// ====== Product-ish intent helpers ======
 function looksLikeProductSlug(s) {
   const q = String(s || "").trim();
   // مثل: skechers-405000n-bkrd / nike-dd1095-608
@@ -184,29 +114,23 @@ function looksLikeProductCode(s) {
 }
 
 function isProductIntent(rawText) {
-  const q = String(rawText || "").toLowerCase().trim();
-    // لا تعتبر السياسات/الخدمات "منتج"
-  if (/(سياسه|سياسة|شروط|خصوصيه|خصوصية|توصيل|شحن|تبديل|استبدال|ارجاع|إرجاع|ترجيع|فروع|فرع|موقع)/i.test(q)) {
-    return false;
-  }
+  const q = String(rawText || "").toLowerCase();
 
-  // slug أو كود → منتج مباشرة
+  // 1) slug أو كود → منتج مباشرة
   if (looksLikeProductSlug(q) || looksLikeProductCode(q)) return true;
 
-  // رابط منتج
-  if (/\/product\/[a-z0-9\-]+/i.test(q)) return true;
-
-  // كلمات شراء/منتج شائعة (لغة المستخدم)
-  if (/(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|شنطه|شنطة|عطر|عطور|برفان|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(q)) {
+  // 2) كلمات شراء/منتج شائعة (لغة المستخدم)
+  if (/(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|شنطه|شنطة|عطر|برفان|كرة قدم|مدارس|جري|مشي|تدريب|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(q)) {
     return true;
   }
 
-  // اسم ماركة (من القاموس)
-  if (detectBrandCanonical(q)) return true;
+  // 3) اسم ماركة (بدون تعداد يدوي لكل الماركات):
+  // نعتبر أي كلمة واحدة طولها 3-8 أحرف عربية/لاتينية قد تكون ماركة شائعة، ونترك البحث يقرر.
+  const t = q.trim();
+  if (t.split(/\s+/).length === 1 && t.length >= 3 && t.length <= 10) return true;
 
   return false;
 }
-
 
 
 function pickOpening() {
@@ -307,29 +231,16 @@ function searchKnowledge(q) {
   const KNOWLEDGE = getKnowledge();
   if (!KNOWLEDGE?.items?.length) return { type: "none", askedSize: null };
 
-const rawLower = String(q || "").trim().toLowerCase();
-// 1) تطبيع + التقاط ماركة قياسية من الديكشنري (إن وجدت)
-const brandCanon = detectBrandCanonical(q); // مثل: "SKECHERS" / "UNDER ARMOUR" / "ON CLOUD" ...
-const queryLower = normalizeForMatch(`${q} ${brandCanon || ""}`.trim());
+const queryLower = normalizeForMatch(q);
+  const rawSlug = String(q || "").trim().toLowerCase(); // للـ slug كما هو بدون تطبيع
 
-// للـ slug كما هو بدون تطبيع
-const rawSlug = rawLower;
+const tokens = tokenize(q);
 
-// 2) توكنز البحث + حقن الماركة القياسية (لتشتغل مع brand_std داخل المعرفة)
-let tokens = tokenize(q);
-if (brandCanon) {
-  tokens = Array.from(new Set([...tokens, brandCanon.toLowerCase(), brandCanon]));
-}
-
-  const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(rawSlug);
-  const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
-
-  // Brand canonical (إن وجد) — يساعدنا على نتائج ماركة أدق + مقاومة للأخطاء الإملائية
-  // brandCanon already computed above
-
-  // استخراج slug من رابط كامل (مهم لأن normalizeForMatch قد يزيل / )
-  const mUrl = rawLower.match(/\/product\/([a-z0-9\-]+)/i);
-  const slugFromUrl = mUrl?.[1] || null;
+const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(rawSlug);
+const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
+  
+  const m = queryLower.match(/\/product\/([a-z0-9\-]+)/i);
+  const slugFromUrl = m?.[1] || null;
 
 if (slugFromUrl) {
   const hit = KNOWLEDGE.items.find(x => normLower(x.product_slug) === slugFromUrl);
@@ -345,60 +256,6 @@ const directSlug = KNOWLEDGE.items.find(x => {
 });
 if (directSlug && isUsableProductItem(directSlug)) return { type: "hit", item: directSlug, askedSize };
 if (directSlug) return { type: "none", askedSize };
-
-
-// === Fast path: استعلام ماركة فقط ===
-// لو المستخدم كتب "سكتشرز" أو "Nike" أو تهجئة عربية… نعرض أفضل 3 خيارات من *كل* منتجات الماركة
-const isBrandOnlyQuery =
-  !!brandCanon &&
-  tokens.length <= 2 &&
-  normalizeForMatch(normalizeArabic(q)).split(/\s+/).filter(Boolean).length <= 2;
-
-if (isBrandOnlyQuery) {
-  const brandItems = KNOWLEDGE.items
-    .filter(isUsableProductItem)
-    .filter(x => {
-      const b = String(x.brand_std || "").trim();
-      const bNorm = normalizeForMatch(normalizeArabic(b));
-      const canonNorm = normalizeForMatch(normalizeArabic(brandCanon));
-      if (bNorm && canonNorm && bNorm === canonNorm) return true;
-      // fallback: brand_tags قد تحتوي الماركة
-      const bt = String(x.brand_tags || "").toLowerCase();
-      return bt.includes(String(brandCanon || "").toLowerCase());
-    });
-
-  if (brandItems.length === 1) {
-    return { type: "hit", item: brandItems[0], askedSize };
-  }
-
-  if (brandItems.length >= 2) {
-    const sorted = brandItems
-      .slice()
-      .sort((a, b) => {
-        const ad = a.has_discount ? 1 : 0;
-        const bd = b.has_discount ? 1 : 0;
-        if (bd !== ad) return bd - ad;
-        const ap = Number(a.discount_percent || 0);
-        const bp = Number(b.discount_percent || 0);
-        if (bp !== ap) return bp - ap;
-        const apr = Number(a.price || 0);
-        const bpr = Number(b.price || 0);
-        if (apr && bpr && apr !== bpr) return apr - bpr;
-        const an = String(a.name || "");
-        const bn = String(b.name || "");
-        return an.localeCompare(bn);
-      });
-
-    const options = sorted.slice(0, 4).map(s => ({
-      slug: s.product_slug || "",
-      name: s.name || ""
-    }));
-
-    return { type: "clarify", options, askedSize };
-  }
-  // لا يوجد منتجات للمركة رغم القاموس (نادر)
-  // نكمّل للبحث العام
-}
 
   const scored = [];
   for (const x of KNOWLEDGE.items) {
@@ -419,14 +276,6 @@ const tags = normLower(x.brand_tags);
 
 const brandStd = normLower(x.brand_std);
 const brandTags = normLower(x.brand_tags);
-    // Boost قوي لمطابقة الماركة القياسية (حل مشكلة: سكيتشرز → بروكس)
-if (brandCanon) {
-  const bc = normLower(brandCanon);
-  if (brandStd === bc) score += 80;
-  else if (brandTags.includes(bc) || keywords.includes(bc)) score += 35;
-  else score -= 5; // خصم خفيف لمنع خطف نتائج من ماركات ثانية
-}
-
 const gender = normLower(x.gender);
 const gender2 = normLower(x.gender_2);
 const ageGroup = normLower(x.age_group);
@@ -461,14 +310,6 @@ const genderHint = extractGenderHint(queryLower);
 const wantsDiscount = extractDiscountHint(queryLower);
 
     let score = 0;
-
-// Boost للمركة من القاموس (مقاوم للأخطاء الإملائية)
-if (brandCanon) {
-  const canonNorm = normalizeForMatch(normalizeArabic(brandCanon));
-  const bNorm = normalizeForMatch(normalizeArabic(brandStd));
-  if (canonNorm && bNorm && canonNorm === bNorm) score += 45;
-  else if (String(brandTags || "").toLowerCase().includes(String(brandCanon).toLowerCase())) score += 18;
-}
 
     // نقاط قوية
     if (name === queryLower) score += 80;
