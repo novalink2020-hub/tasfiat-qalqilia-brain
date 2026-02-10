@@ -103,29 +103,40 @@ function loadBrandDictionaryOnce() {
         .map(s => normalizeArabic(String(s || "")).toLowerCase())
         .filter(Boolean);
 
-      return { canonical, normSyn };
+      // نطبع canonical ليصير مطابق لحقل brand_std في المعرفة (غالبًا بدون مسافات)
+      const canonKey = normalizeForMatch(canonical).replace(/\s+/g, "").toLowerCase();
+
+      // نطبع المرادفات: عربي/لاتيني + إزالة مسافات
+      const normSyn2 = normSyn
+        .map(s => normalizeForMatch(s).replace(/\s+/g, "").toLowerCase())
+        .filter(Boolean);
+
+      return { canonical, canonKey, normSyn: normSyn2 };
+
     })
-    .filter(x => x.canonical && x.normSyn.length);
+    .filter(x => x.canonical && x.canonKey && x.normSyn.length);
 
   return BRAND_CACHE;
 }
 
 function detectBrandCanonical(text) {
-  const q = normalizeArabic(String(text || "")).toLowerCase();
+  // نستخدم normalizeForMatch عشان يدعم عربي/لاتيني ويشيل الرموز
+  const q0 = normalizeForMatch(String(text || ""));
+  const q = q0.replace(/\s+/g, "").toLowerCase();
   if (!q) return null;
 
   const list = loadBrandDictionaryOnce();
 
-  // التقط أي مرادف موجود داخل النص (includes) أو يساوي النص
   for (const b of list) {
     for (const syn of b.normSyn) {
       if (!syn) continue;
-      if (q === syn) return b.canonical;
-      if (q.includes(syn)) return b.canonical;
+      if (q === syn) return b.canonKey;         // نرجّع key مطابق لـ brand_std
+      if (q.includes(syn)) return b.canonKey;
     }
   }
   return null;
 }
+
 
 
 function loadForeignPlacesOnce() {
@@ -291,7 +302,8 @@ const tokens = tokenize(q);
 const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(rawSlug);
 const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
   
-  const m = queryLower.match(/\/product\/([a-z0-9\-]+)/i);
+  // مهم: لا تستخدم queryLower لأنه ممكن يكون شال "/" و ":"
+  const m = String(q || "").match(/\/product\/([a-z0-9\-]+)/i);
   const slugFromUrl = m?.[1] || null;
 
 if (slugFromUrl) {
