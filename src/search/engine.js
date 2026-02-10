@@ -83,6 +83,50 @@ function isOnlySizeQuery(raw) {
   return /^\d{2}(\.\d)?$/.test(s);
 }
 let FOREIGN_CACHE = null;
+// ====== Brand dictionary (canonical + misspellings) ======
+let BRAND_CACHE = null;
+
+function loadBrandDictionaryOnce() {
+  if (BRAND_CACHE) return BRAND_CACHE;
+
+  // نفس أسلوبك: قراءة JSON من الملف محليًا مرة واحدة
+  const p = path.resolve("src/search/brand.dictionary.json");
+  const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+
+  const brands = Array.isArray(raw?.brands) ? raw.brands : [];
+  // نطبع (normalize) المرادفات لتكون سهلة الالتقاط حتى مع أخطاء و تشكيل
+  BRAND_CACHE = brands
+    .map(b => {
+      const canonical = String(b?.canonical || "").trim();
+      const synonyms = Array.isArray(b?.synonyms) ? b.synonyms : [];
+      const normSyn = synonyms
+        .map(s => normalizeArabic(String(s || "")).toLowerCase())
+        .filter(Boolean);
+
+      return { canonical, normSyn };
+    })
+    .filter(x => x.canonical && x.normSyn.length);
+
+  return BRAND_CACHE;
+}
+
+function detectBrandCanonical(text) {
+  const q = normalizeArabic(String(text || "")).toLowerCase();
+  if (!q) return null;
+
+  const list = loadBrandDictionaryOnce();
+
+  // التقط أي مرادف موجود داخل النص (includes) أو يساوي النص
+  for (const b of list) {
+    for (const syn of b.normSyn) {
+      if (!syn) continue;
+      if (q === syn) return b.canonical;
+      if (q.includes(syn)) return b.canonical;
+    }
+  }
+  return null;
+}
+
 
 function loadForeignPlacesOnce() {
   if (FOREIGN_CACHE) return FOREIGN_CACHE;
@@ -118,6 +162,8 @@ function isProductIntent(rawText) {
 
   // 1) slug أو كود → منتج مباشرة
   if (looksLikeProductSlug(q) || looksLikeProductCode(q)) return true;
+  // 1.5) لو النص فيه ماركة (حتى لو كتابة عربية/غلط) → منتج
+  if (detectBrandCanonical(rawText)) return true;
 
   // 2) كلمات شراء/منتج شائعة (لغة المستخدم)
   if (/(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|شنطه|شنطة|عطر|برفان|كرة قدم|مدارس|جري|مشي|تدريب|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(q)) {
@@ -227,11 +273,17 @@ function isUsableProductItem(x) {
   return hasName && hasUrl && hasSlug;
 }
 
-function searchKnowledge(q) {
+function searchKnowledge(q, opts = {}) {
   const KNOWLEDGE = getKnowledge();
   if (!KNOWLEDGE?.items?.length) return { type: "none", askedSize: null };
 
 const queryLower = normalizeForMatch(q);
+    const brandCanonRaw = opts?.brandCanon || null;
+  const brandCanon = brandCanonRaw ? String(brandCanonRaw).toLowerCase() : null;
+
+  // هل الاستعلام “ماركة فقط”؟
+  const brandOnlyQuery = !!brandCanon && normalizeArabic(String(q || "")).toLowerCase().trim() === normalizeArabic(String(brandCanonRaw || "")).toLowerCase().trim();
+
   const rawSlug = String(q || "").trim().toLowerCase(); // للـ slug كما هو بدون تطبيع
 
 const tokens = tokenize(q);
@@ -275,6 +327,11 @@ const keywords = normLower(x.keywords);
 const tags = normLower(x.brand_tags);
 
 const brandStd = normLower(x.brand_std);
+    // لو المستخدم ذكر ماركة بوضوح → فلترة صارمة على نفس الماركة
+if (brandCanon && brandStd && brandStd !== brandCanon) {
+  continue;
+}
+
 const brandTags = normLower(x.brand_tags);
 const gender = normLower(x.gender);
 const gender2 = normLower(x.gender_2);
@@ -319,6 +376,9 @@ if (slug && /[a-z]+\d+/i.test(queryLower) && slug.includes(queryLower)) score +=
 
 // Boost للماركة القياسية
 if (brandStd && (brandStd === queryLower || brandStd.includes(queryLower))) score += 35;
+    // Boost أقوى عندما القاموس التقط الماركة
+if (brandCanon && brandStd === brandCanon) score += 60;
+
 
 // جندر/فئة
 if (genderHint) {
@@ -381,6 +441,15 @@ if (availability.includes(t)) score += 3;
   scored.sort((a, b) => b.score - a.score);
   if (!scored.length) return { type: "none", askedSize };
 
+    // لو الاستعلام ماركة فقط → دايمًا اعرض أفضل 3 خيارات بدل hit واحد
+  if (brandOnlyQuery) {
+    const options = scored.slice(0, 3).map(s => ({
+      slug: s.item.product_slug || "",
+      name: s.item.name || ""
+    }));
+    return { type: "clarify", options, askedSize };
+  }
+
   const top = scored[0];
   const second = scored[1];
 const isBrandishQueryFinal = (tokens.length === 1 && queryLower.length <= 6);
@@ -401,6 +470,8 @@ if (top.score < minScore) return { type: "none", askedSize };
 export function handleQuery(q, ctx = {}) {
   const raw = normalizeText(q);
   const ql = raw.toLowerCase();
+    const brandCanonRaw = detectBrandCanonical(raw); // مثال: "SKECHERS" / "UNDER ARMOUR"
+
 
   // شكر/إغلاق
   if (/^(شكرا|شكرًا|يسلمو|يسلموا|مشكور|تسلم)\s*$/i.test(raw)) {
@@ -553,7 +624,7 @@ if (fee === null) {
   }
 
   // 6) بحث عام
-  const result = searchKnowledge(raw);
+  const result = searchKnowledge(raw, { brandCanon: brandCanonRaw });
 
   if (result.type === "hit" && result.item) {
     const slug = String(result.item.product_slug || "").toLowerCase();
@@ -615,7 +686,7 @@ if (fee === null) {
   }
 // Router شامل: إذا الرسالة تبدو “منتج” لا نسأل سؤال نية عام — نبحث مباشرة
 if (isProductIntent(raw)) {
-  const res = searchKnowledge(raw);
+  const res = searchKnowledge(raw, { brandCanon: brandCanonRaw });
 
   if (res.type === "hit") {
     return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ["product_hit"] };
