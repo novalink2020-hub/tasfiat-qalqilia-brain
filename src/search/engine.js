@@ -28,33 +28,20 @@ function normalizeText(s) {
 function normLower(v) {
   return String(v || "").toLowerCase();
 }
+
 function normalizeArabic(s) {
   const x = String(s || "");
   return x
-    // remove tashkeel
-    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, "")
-    // unify alef forms
-    .replace(/[إأآٱ]/g, "ا")
-    // unify yaa / alef maqsura
-    .replace(/ى/g, "ي")
-    // unify ta marbuta (اختياري لكنه عملي للبحث)
-    .replace(/ة/g, "ه")
-    // remove tatweel
-    .replace(/ـ/g, "")
-    // reduce repeated letters (جومااا → جوما)
-    .replace(/(.)\1{2,}/g, "$1$1")
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, "") // tashkeel
+    .replace(/[إأآٱ]/g, "ا") // alef
+    .replace(/ى/g, "ي") // yaa/maqsura
+    .replace(/ة/g, "ه") // ta marbuta -> ha
+    .replace(/ـ/g, "") // tatweel
+    .replace(/(.)\1{2,}/g, "$1$1") // repeated letters
     .trim();
 }
-function tokenizeArabicSafe(s) {
-  return String(s || "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s\-]+/gu, " ")
-    .split(/\s+/)
-    .map(t => t.trim())
-    .filter(t => t.length >= 2);
-}
+
 function extractMoneyQuery(queryLower) {
-  // مثال: "200 شيكل" أو "200₪"
   const m = String(queryLower || "").match(/(\d{2,5})\s*(شيكل|₪)/);
   return m ? Number(m[1]) : null;
 }
@@ -82,69 +69,113 @@ function isOnlySizeQuery(raw) {
   const s = normalizeText(raw);
   return /^\d{2}(\.\d)?$/.test(s);
 }
-let FOREIGN_CACHE = null;
-// ====== Brand dictionary (canonical + misspellings) ======
+
+// =========================
+// Brand dictionary (your schema: brand_std + aliases)
+// =========================
 let BRAND_CACHE = null;
+
+function normKey(s) {
+  // key موحّد للمقارنة بين: brand_std في المعرفة + aliases في القاموس + نص المستخدم
+  return normalizeForMatch(String(s || ""))
+    .replace(/\s+/g, "")
+    .toLowerCase()
+    .trim();
+}
 
 function loadBrandDictionaryOnce() {
   if (BRAND_CACHE) return BRAND_CACHE;
 
-  // نفس أسلوبك: قراءة JSON من الملف محليًا مرة واحدة
   const p = path.resolve("src/search/brand.dictionary.json");
   const raw = JSON.parse(fs.readFileSync(p, "utf8"));
 
   const brands = Array.isArray(raw?.brands) ? raw.brands : [];
-  // نطبع (normalize) المرادفات لتكون سهلة الالتقاط حتى مع أخطاء و تشكيل
+
   BRAND_CACHE = brands
     .map(b => {
-      const canonical = String(b?.canonical || "").trim();
-      const synonyms = Array.isArray(b?.synonyms) ? b.synonyms : [];
-      const normSyn = synonyms
-        .map(s => normalizeArabic(String(s || "")).toLowerCase())
+      const brandStd = String(b?.brand_std || "").trim();
+      if (!brandStd) return null;
+
+      const baseAliases = []
+        .concat([brandStd, b?.en, b?.ar])
+        .concat(Array.isArray(b?.aliases) ? b.aliases : [])
+        .concat(Array.isArray(b?.normalize_from_knowledge_brand_std) ? b.normalize_from_knowledge_brand_std : [])
+        .filter(Boolean)
+        .map(x => String(x).trim())
         .filter(Boolean);
 
-      // نطبع canonical ليصير مطابق لحقل brand_std في المعرفة (غالبًا بدون مسافات)
-      const canonKey = normalizeForMatch(canonical).replace(/\s+/g, "").toLowerCase();
+      const brandKey = normKey(brandStd);
+      const aliasKeys = Array.from(new Set(baseAliases.map(normKey).filter(Boolean)));
 
-      // نطبع المرادفات: عربي/لاتيني + إزالة مسافات
-      const normSyn2 = normSyn
-        .map(s => normalizeForMatch(s).replace(/\s+/g, "").toLowerCase())
-        .filter(Boolean);
-
-      return { canonical, canonKey, normSyn: normSyn2 };
-
+      return { brandStd, brandKey, aliasKeys };
     })
-    .filter(x => x.canonical && x.canonKey && x.normSyn.length);
+    .filter(Boolean);
 
   return BRAND_CACHE;
 }
 
-function detectBrandCanonical(text) {
-  // نستخدم normalizeForMatch عشان يدعم عربي/لاتيني ويشيل الرموز
-  const q0 = normalizeForMatch(String(text || ""));
-  const q = q0.replace(/\s+/g, "").toLowerCase();
-  if (!q) return null;
+function detectBrandInfo(text) {
+  const qKey = normKey(text);
+  if (!qKey) return null;
 
   const list = loadBrandDictionaryOnce();
 
   for (const b of list) {
-    for (const syn of b.normSyn) {
-      if (!syn) continue;
-      if (q === syn) return b.canonKey;         // نرجّع key مطابق لـ brand_std
-      if (q.includes(syn)) return b.canonKey;
+    // exact match أولاً (ماركة فقط غالباً)
+    for (const a of b.aliasKeys) {
+      if (!a) continue;
+      if (qKey === a) return { brandStd: b.brandStd, brandKey: b.brandKey, exact: true };
+    }
+    // contains match (مثال: "بدي حذاء سكيتشرز")
+    for (const a of b.aliasKeys) {
+      if (!a) continue;
+      if (qKey.includes(a)) return { brandStd: b.brandStd, brandKey: b.brandKey, exact: false };
     }
   }
   return null;
 }
 
+function looksLikeProductSlug(s) {
+  const q = String(s || "").trim();
+  return /^[a-z0-9]+(?:-[a-z0-9]+){2,}$/i.test(q);
+}
 
+function looksLikeProductCode(s) {
+  const q = String(s || "").trim();
+  return /[a-z]{2,}\d{2,}[a-z0-9\-]{0,}/i.test(q);
+}
+
+function isProductIntent(rawText) {
+  const q = String(rawText || "").toLowerCase();
+
+  if (looksLikeProductSlug(q) || looksLikeProductCode(q)) return true;
+
+  // وجود ماركة (حتى غلط إملائي) = نية منتج
+  if (detectBrandInfo(rawText)) return true;
+
+  if (/(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|شنطه|شنطة|عطر|برفان|كرة قدم|مدارس|جري|مشي|تدريب|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(q)) {
+    return true;
+  }
+
+  const t = q.trim();
+  if (t.split(/\s+/).length === 1 && t.length >= 3 && t.length <= 10) return true;
+
+  return false;
+}
+
+function pickOpening() {
+  const arr = ["تمام 😊", "ولا يهمك 😊", "حاضر 👌", "يسعدني 😊", "على راسي 😊"];
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// ====== Shipping helpers ======
+let FOREIGN_CACHE = null;
 
 function loadForeignPlacesOnce() {
   if (FOREIGN_CACHE) return FOREIGN_CACHE;
   const p = path.resolve("src/text/foreign_places.json");
   const raw = JSON.parse(fs.readFileSync(p, "utf8"));
   const arr = Array.isArray(raw?.places) ? raw.places : [];
-  // نخزنها مطبعة وجاهزة للمطابقة
   FOREIGN_CACHE = arr.map(x => normalizeForMatch(x)).filter(Boolean);
   return FOREIGN_CACHE;
 }
@@ -153,77 +184,8 @@ function isForeignPlace(text) {
   const q = normalizeForMatch(text);
   if (!q) return false;
   const list = loadForeignPlacesOnce();
-  // مطابقة احتوائية بعد التطبيع
   return list.some(k => k && (q.includes(k) || k.includes(q)));
 }
-function looksLikeProductSlug(s) {
-  const q = String(s || "").trim();
-  // مثل: skechers-405000n-bkrd / nike-dd1095-608
-  return /^[a-z0-9]+(?:-[a-z0-9]+){2,}$/i.test(q);
-}
-
-function looksLikeProductCode(s) {
-  const q = String(s || "").trim();
-  // مثل: TOJS2401TF / 9Q1306-X0L / DD1095 608 (بعد التنظيف)
-  return /[a-z]{2,}\d{2,}[a-z0-9\-]{0,}/i.test(q);
-}
-
-function isProductIntent(rawText) {
-  const q = String(rawText || "").toLowerCase();
-
-  // 1) slug أو كود → منتج مباشرة
-  if (looksLikeProductSlug(q) || looksLikeProductCode(q)) return true;
-  // 1.5) لو النص فيه ماركة (حتى لو كتابة عربية/غلط) → منتج
-  if (detectBrandCanonical(rawText)) return true;
-
-  // 2) كلمات شراء/منتج شائعة (لغة المستخدم)
-  if (/(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|شنطه|شنطة|عطر|برفان|كرة قدم|مدارس|جري|مشي|تدريب|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(q)) {
-    return true;
-  }
-
-  // 3) اسم ماركة (بدون تعداد يدوي لكل الماركات):
-  // نعتبر أي كلمة واحدة طولها 3-8 أحرف عربية/لاتينية قد تكون ماركة شائعة، ونترك البحث يقرر.
-  const t = q.trim();
-  if (t.split(/\s+/).length === 1 && t.length >= 3 && t.length <= 10) return true;
-
-  return false;
-}
-
-
-function pickOpening() {
-  const arr = ["تمام 😊", "ولا يهمك 😊", "حاضر 👌", "يسعدني 😊", "على راسي 😊"];
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-// ====== Shipping helpers ======
-const JERUSALEM_AREAS_30 = [
-  "باب العامود",
-  "باب العمود",
-  "واد الجوز",
-  "الشيخ جراح",
-  "بيت حنينا",
-  "شعفاط",
-  "سلوان",
-  "العيسوية",
-  "الطور",
-  "البلدة القديمة",
-  "المسجد الأقصى",
-  "القدس القديمة",
-  "القدس"
-];
-
-const JERUSALEM_SUBURBS_20 = [
-  "ضواحي القدس",
-  "العيزرية",
-  "أبو ديس",
-  "الرام",
-  "عناتا",
-  "الزعيم",
-  "بير نبالا",
-  "بدو",
-  "بيت إكسا",
-  "جبع"
-];
 
 function extractCityFromText(textLower) {
   const clean = String(textLower || "")
@@ -232,11 +194,9 @@ function extractCityFromText(textLower) {
     .replace(/\s+/g, " ")
     .trim();
 
-  // نلتقط مدينة من "على/الى/إلى"
   const m = clean.match(/(?:على|الى|إلى)\s+(.+)$/);
   if (m?.[1]) return m[1].trim();
 
-  // أو إذا النص نفسه قصير
   if (clean.length <= 22) return clean;
 
   return null;
@@ -245,18 +205,16 @@ function extractCityFromText(textLower) {
 function classifyShipping(cityRaw) {
   const city = String(cityRaw || "").trim();
   if (!city) return { fee: null, zone: "unknown" };
+
   const out = detectOutOfScopePlace(city);
-if (out.scope === "outside_palestine") return { fee: null, zone: "outside", policy: out.policy };
-if (out.scope === "gaza") return { fee: null, zone: "gaza", policy: out.policy };
+  if (out.scope === "outside_palestine") return { fee: null, zone: "outside", policy: out.policy };
+  if (out.scope === "gaza") return { fee: null, zone: "gaza", policy: out.policy };
 
-  // إشارات خارج النطاق (اختياري إبقاؤه)
-  const cityLower = city.toLowerCase();
-if (isForeignPlace(city)) {
-  return { fee: null, zone: "outside" };
-}
+  if (isForeignPlace(city)) {
+    return { fee: null, zone: "outside" };
+  }
 
-
-  const zone = classifyCityZone(city); // west_bank | jerusalem_suburbs | jerusalem | inside_1948 | null
+  const zone = classifyCityZone(city);
 
   if (!zone) return { fee: null, zone: "unknown" };
 
@@ -268,7 +226,6 @@ if (isForeignPlace(city)) {
     return { fee: PROFILE.shipping.fees_ils.jerusalem, zone };
   }
 
-  // west_bank + jerusalem_suburbs = 20
   if (zone === "west_bank" || zone === "jerusalem_suburbs") {
     return { fee: PROFILE.shipping.fees_ils.west_bank, zone };
   }
@@ -288,79 +245,63 @@ function searchKnowledge(q, opts = {}) {
   const KNOWLEDGE = getKnowledge();
   if (!KNOWLEDGE?.items?.length) return { type: "none", askedSize: null };
 
-const queryLower = normalizeForMatch(q);
-    const brandCanonRaw = opts?.brandCanon || null;
-  const brandCanon = brandCanonRaw ? String(brandCanonRaw).toLowerCase() : null;
+  const queryLower = normalizeForMatch(q);
+  const tokens = tokenize(q);
 
-  // هل الاستعلام “ماركة فقط”؟
-  const brandOnlyQuery = !!brandCanon && normalizeArabic(String(q || "")).toLowerCase().trim() === normalizeArabic(String(brandCanonRaw || "")).toLowerCase().trim();
+  const rawSlug = String(q || "").trim().toLowerCase();
+  const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(rawSlug);
+  const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
 
-  const rawSlug = String(q || "").trim().toLowerCase(); // للـ slug كما هو بدون تطبيع
+  const brandKey = opts?.brandKey ? String(opts.brandKey) : null;
+  const brandExact = !!opts?.brandExact;
 
-const tokens = tokenize(q);
-
-const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(rawSlug);
-const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
-  
-  // مهم: لا تستخدم queryLower لأنه ممكن يكون شال "/" و ":"
+  // URL -> slug
   const m = String(q || "").match(/\/product\/([a-z0-9\-]+)/i);
   const slugFromUrl = m?.[1] || null;
 
-if (slugFromUrl) {
-  const hit = KNOWLEDGE.items.find(x => normLower(x.product_slug) === slugFromUrl);
-  if (hit && isUsableProductItem(hit)) return { type: "hit", item: hit, askedSize };
-  // إذا موجود لكنه ناقص بيانات: لا نعرض "—"
-  if (hit) return { type: "none", askedSize };
-}
+  if (slugFromUrl) {
+    const hit = KNOWLEDGE.items.find(x => normLower(x.product_slug) === slugFromUrl);
+    if (hit && isUsableProductItem(hit)) return { type: "hit", item: hit, askedSize };
+    if (hit) return { type: "none", askedSize };
+  }
 
   // exact slug
-const directSlug = KNOWLEDGE.items.find(x => {
-  const slug = normLower(x.product_slug);
-  return slug && (slug === rawSlug || slug === queryLower);
-});
-if (directSlug && isUsableProductItem(directSlug)) return { type: "hit", item: directSlug, askedSize };
-if (directSlug) return { type: "none", askedSize };
+  const directSlug = KNOWLEDGE.items.find(x => {
+    const slug = normLower(x.product_slug);
+    return slug && (slug === rawSlug || slug === queryLower);
+  });
+  if (directSlug && isUsableProductItem(directSlug)) return { type: "hit", item: directSlug, askedSize };
+  if (directSlug) return { type: "none", askedSize };
 
   const scored = [];
+
   for (const x of KNOWLEDGE.items) {
-    // حماية UX: لا نعرض منتجات ناقصة
-const hasName = String(x?.name || "").trim().length >= 2;
-const hasUrl = String(x?.page_url || "").trim().startsWith("http");
-const hasSlug = String(x?.product_slug || "").trim().length >= 2;
-if (!hasSlug || !hasUrl) continue;
-// (اختياري) شدّد أكثر:
-// const hasPrice = Number(x?.price || 0) > 0;
-// if (!hasName || !hasPrice) continue;
-if (!hasName) continue;
+    const hasName = String(x?.name || "").trim().length >= 2;
+    const hasUrl = String(x?.page_url || "").trim().startsWith("http");
+    const hasSlug = String(x?.product_slug || "").trim().length >= 2;
+    if (!hasSlug || !hasUrl || !hasName) continue;
 
     const slug = normLower(x.product_slug);
-const name = normLower(x.name);
-const keywords = normLower(x.keywords);
-const tags = normLower(x.brand_tags);
+    const name = normLower(x.name);
+    const keywords = normLower(x.keywords);
+    const tags = normLower(x.brand_tags);
 
-const brandStd = normLower(x.brand_std);
-    // لو المستخدم ذكر ماركة بوضوح → فلترة صارمة على نفس الماركة
-if (brandCanon && brandStd && brandStd !== brandCanon) {
-  continue;
-}
+    const brandStdRaw = String(x?.brand_std || "");
+    const itemBrandKey = normKey(brandStdRaw);
 
-const brandTags = normLower(x.brand_tags);
-const gender = normLower(x.gender);
-const gender2 = normLower(x.gender_2);
-const ageGroup = normLower(x.age_group);
+    // فلترة صارمة إذا الماركة واضحة من القاموس
+    if (brandKey && itemBrandKey && itemBrandKey !== brandKey) continue;
 
-const sizes = normLower(x.sizes);
-const sizesMin = String(x.sizes_min ?? "");
-const sizesMax = String(x.sizes_max ?? "");
+    const gender = normLower(x.gender);
+    const gender2 = normLower(x.gender_2);
+    const ageGroup = normLower(x.age_group);
 
-const availability = normLower(x.availability);
-const pageUrl = normLower(x.page_url);
-const imageUrl = normLower(x.image_url);
+    const sizes = normLower(x.sizes);
 
-const price = Number(x.price || 0);
-const oldPrice = Number(x.old_price || 0);
-const hasDiscount = !!x.has_discount;
-const discountPercent = Number(x.discount_percent || 0);
+    const availability = normLower(x.availability);
+    const price = Number(x.price || 0);
+    const hasDiscount = !!x.has_discount;
+    const discountPercent = Number(x.discount_percent || 0);
 
     const isPolicyLike =
       slug.startsWith("policy-") ||
@@ -369,76 +310,61 @@ const discountPercent = Number(x.discount_percent || 0);
       tags.includes("سياسات") ||
       tags.includes("فروع");
 
-    // فلترة المقاس للمنتجات فقط
     if (askedSize && !isPolicyLike) {
       const list = sizes.split(",").map(s => s.trim());
       if (!list.includes(String(askedSize))) continue;
     }
-const moneyQ = extractMoneyQuery(queryLower);
-const genderHint = extractGenderHint(queryLower);
-const wantsDiscount = extractDiscountHint(queryLower);
+
+    const moneyQ = extractMoneyQuery(queryLower);
+    const genderHint = extractGenderHint(queryLower);
+    const wantsDiscount = extractDiscountHint(queryLower);
 
     let score = 0;
 
-    // نقاط قوية
+    // لو تم فلترة بالماركة: أعطي كل عناصر الماركة base score حتى ما يطلع "none"
+    if (brandKey && itemBrandKey === brandKey) score += 8;
+
     if (name === queryLower) score += 80;
     if (slug && queryLower === slug) score += 90;
-    // Boost قوي للأكواد/السلاج — لأنه نية شراء مباشرة
-if (slug && /[a-z]+\d+/i.test(queryLower) && slug.includes(queryLower)) score += 70;
+    if (slug && /[a-z]+\d+/i.test(queryLower) && slug.includes(queryLower)) score += 70;
 
-// Boost للماركة القياسية
-if (brandStd && (brandStd === queryLower || brandStd.includes(queryLower))) score += 35;
-    // Boost أقوى عندما القاموس التقط الماركة
-if (brandCanon && brandStd === brandCanon) score += 60;
+    // brand boost (normalized)
+    if (brandKey && itemBrandKey === brandKey) score += 60;
 
+    // gender / audience
+    if (genderHint) {
+      if ((gender.includes("رجال") || gender.includes("male")) && genderHint === "male") score += 25;
+      if ((gender.includes("نساء") || gender.includes("female")) && genderHint === "female") score += 25;
+      if ((gender.includes("ولادي") || gender.includes("kids")) && (genderHint === "kids_male" || genderHint === "kids_female")) score += 18;
+      if (gender.includes("بناتي") && genderHint === "kids_female") score += 22;
+    }
 
-// جندر/فئة
-if (genderHint) {
-  // نرفع اللي يطابق الجمهور المستهدف
-  if (gender.includes("رجال") || gender.includes("male")) {
-    if (genderHint === "male") score += 25;
-  }
-  if (gender.includes("نساء") || gender.includes("female")) {
-    if (genderHint === "female") score += 25;
-  }
-  if (gender.includes("ولادي") || gender.includes("kids")) {
-    if (genderHint === "kids_male" || genderHint === "kids_female") score += 18;
-  }
-  if (gender.includes("بناتي")) {
-    if (genderHint === "kids_female") score += 22;
-  }
-}
+    if (wantsDiscount) {
+      if (hasDiscount) score += 18;
+      if (discountPercent >= 20) score += 6;
+    }
 
-// الخصومات
-if (wantsDiscount) {
-  if (hasDiscount) score += 18;
-  if (discountPercent >= 20) score += 6;
-}
+    if (moneyQ && price > 0) {
+      const diff = Math.abs(price - moneyQ);
+      if (diff <= 20) score += 14;
+      else if (diff <= 50) score += 8;
+    }
 
-// السعر (تلميح)
-if (moneyQ && price > 0) {
-  const diff = Math.abs(price - moneyQ);
-  if (diff <= 20) score += 14;
-  else if (diff <= 50) score += 8;
-}
     if (name.includes(queryLower) || queryLower.includes(name)) score += 35;
     if (slug && queryLower.includes(slug)) score += 60;
 
-    const hay = `${name} ${keywords} ${tags} ${brandStd} ${brandTags} ${gender} ${gender2} ${ageGroup} ${sizes} ${sizesMin} ${sizesMax} ${availability} ${pageUrl} ${imageUrl} ${slug}`;
+    const hay = `${name} ${keywords} ${tags} ${brandStdRaw} ${gender} ${gender2} ${ageGroup} ${sizes} ${availability} ${slug}`;
     for (const t of tokens) {
       if (!t) continue;
       if (name.includes(t)) score += 10;
-      // إذا الاستعلام كلمة واحدة قصيرة (غالبًا ماركة/اسم شائع) نرفع الوزن بشكل واضح
-const isBrandishQuery = (tokens.length === 1 && queryLower.length <= 6);
-if (keywords.includes(t)) score += (isBrandishQuery ? 22 : 8);
 
+      const isBrandishQuery = (tokens.length === 1 && queryLower.length <= 6);
+      if (keywords.includes(t)) score += (isBrandishQuery ? 22 : 8);
       if (tags.includes(t)) score += 7;
-const isBrandishQuery2 = (tokens.length === 1 && queryLower.length <= 6);
-if (brandStd.includes(t)) score += (isBrandishQuery2 ? 26 : 9);
-if (gender.includes(t)) score += 6;
-if (gender2.includes(t)) score += 6;
-if (ageGroup.includes(t)) score += 5;
-if (availability.includes(t)) score += 3;
+      if (gender.includes(t)) score += 6;
+      if (gender2.includes(t)) score += 6;
+      if (ageGroup.includes(t)) score += 5;
+      if (availability.includes(t)) score += 3;
       if (sizes.includes(t)) score += 12;
       if (slug.includes(t)) score += 9;
       if (hay.includes(t)) score += 2;
@@ -453,8 +379,8 @@ if (availability.includes(t)) score += 3;
   scored.sort((a, b) => b.score - a.score);
   if (!scored.length) return { type: "none", askedSize };
 
-    // لو الاستعلام ماركة فقط → دايمًا اعرض أفضل 3 خيارات بدل hit واحد
-  if (brandOnlyQuery) {
+  // ماركة فقط (exact) => اعرض أفضل 3 دائمًا
+  if (brandKey && brandExact) {
     const options = scored.slice(0, 3).map(s => ({
       slug: s.item.product_slug || "",
       name: s.item.name || ""
@@ -464,9 +390,13 @@ if (availability.includes(t)) score += 3;
 
   const top = scored[0];
   const second = scored[1];
-const isBrandishQueryFinal = (tokens.length === 1 && queryLower.length <= 6);
-const minScore = isBrandishQueryFinal ? 12 : 25;
-if (top.score < minScore) return { type: "none", askedSize };
+
+  // لو فلترنا بالماركة: لا تشدد minScore كثير (لأن الفلترة نفسها قوية)
+  const isBrandFiltered = !!brandKey;
+  const isBrandishQueryFinal = (tokens.length === 1 && queryLower.length <= 6);
+
+  const minScore = isBrandFiltered ? 6 : (isBrandishQueryFinal ? 12 : 25);
+  if (top.score < minScore) return { type: "none", askedSize };
 
   if (second && second.score >= top.score - 5) {
     const options = scored.slice(0, 4).map(s => ({
@@ -482,8 +412,8 @@ if (top.score < minScore) return { type: "none", askedSize };
 export function handleQuery(q, ctx = {}) {
   const raw = normalizeText(q);
   const ql = raw.toLowerCase();
-    const brandCanonRaw = detectBrandCanonical(raw); // مثال: "SKECHERS" / "UNDER ARMOUR"
 
+  const brandInfo = detectBrandInfo(raw); // {brandStd, brandKey, exact} أو null
 
   // شكر/إغلاق
   if (/^(شكرا|شكرًا|يسلمو|يسلموا|مشكور|تسلم)\s*$/i.test(raw)) {
@@ -509,7 +439,7 @@ export function handleQuery(q, ctx = {}) {
   const choiceMemory = ctx?.choiceMemory;
   const convKey = conversationId !== null ? String(conversationId) : null;
 
-  // 0) اختيار رقم من قائمة (1/2/3/4) — مهم: بعد stripHtml بيصير الرقم رقم فعلاً
+  // اختيار رقم من قائمة
   const choiceNum = raw.match(/^\s*([1-4])\s*$/)?.[1] || null;
   if (choiceNum && convKey && choiceMemory?.has(convKey)) {
     const mem = choiceMemory.get(convKey);
@@ -535,13 +465,13 @@ export function handleQuery(q, ctx = {}) {
     };
   }
 
-  // 1) Intent بسيط
+  // Intent بسيط
   const isShipping = /توصيل|شحن/.test(ql);
   const isReturn = /إرجاع|ارجاع|ترجيع|استرجاع/.test(ql);
   const isExchange = /تبديل|استبدال/.test(ql);
   const isBranches = /فرع|فروع|موقع|وين/.test(ql);
 
-  // 2) إرجاع/تبديل
+  // إرجاع/تبديل
   if (isReturn || isExchange) {
     return {
       ok: true,
@@ -551,7 +481,7 @@ export function handleQuery(q, ctx = {}) {
     };
   }
 
-  // 3) توصيل
+  // توصيل
   if (isShipping) {
     const city = extractCityFromText(ql);
     if (!city) {
@@ -564,36 +494,33 @@ export function handleQuery(q, ctx = {}) {
     }
 
     const { fee, zone } = classifyShipping(city);
-if (fee === null) {
-  // خارج فلسطين
-  if (zone === "outside") {
-    return {
-      ok: true,
-      found: false,
-      reply: "آسفين 🙏 التوصيل متاح **داخل فلسطين فقط**.",
-      tags: ["lead_shipping", "out_of_scope", zone]
-    };
-  }
 
-  // قطاع غزة
-  if (zone === "gaza") {
-    return {
-      ok: true,
-      found: false,
-      reply: "آسفين 🙏 حاليًا **ما في توصيل لقطاع غزة**.",
-      tags: ["lead_shipping", "out_of_scope", zone]
-    };
-  }
+    if (fee === null) {
+      if (zone === "outside") {
+        return {
+          ok: true,
+          found: false,
+          reply: "آسفين 🙏 التوصيل متاح **داخل فلسطين فقط**.",
+          tags: ["lead_shipping", "out_of_scope", zone]
+        };
+      }
 
-  // غير معروف داخل فلسطين → استيضاح (تعديل النص المطلوب)
-  return {
-    ok: true,
-    found: false,
-    reply: "تمام 😊 بس حتى أعطيك رقم صحيح: المدينة هاي في **الضفة** ولا **القدس** ولا **الداخل (48)**؟ اكتبها/وضّحلي وبطلعلك الرسوم فورًا.",
-    tags: ["lead_shipping", "needs_clarification", zone]
-  };
-}
+      if (zone === "gaza") {
+        return {
+          ok: true,
+          found: false,
+          reply: "آسفين 🙏 حاليًا **ما في توصيل لقطاع غزة**.",
+          tags: ["lead_shipping", "out_of_scope", zone]
+        };
+      }
 
+      return {
+        ok: true,
+        found: false,
+        reply: "تمام 😊 بس حتى أعطيك رقم صحيح: المدينة هاي في **الضفة** ولا **القدس** ولا **الداخل (48)**؟ اكتبها/وضّحلي وبطلعلك الرسوم فورًا.",
+        tags: ["lead_shipping", "needs_clarification", zone]
+      };
+    }
 
     const daysMin = PROFILE.shipping.days_min;
     const daysMax = PROFILE.shipping.days_max;
@@ -606,13 +533,25 @@ if (fee === null) {
     };
   }
 
-  // 4) طلب عام لمنتج
+  // فروع
+  if (isBranches) {
+    return {
+      ok: true,
+      found: false,
+      reply: "تمام 😊 بتقصد **موقع الفروع** ولا **موقع المقر**؟ احكيلي شو بدك بالزبط.",
+      tags: ["lead_branches", "needs_clarification"]
+    };
+  }
+
+  // طلب عام لمنتج
   const genericProductAsk = /بدّي|بدي|عايز|حذاء|كوتشي|جزمة|بوط|صندل|كروكس|شوز/.test(ql);
 
   if (genericProductAsk && raw.length <= 30) {
     const hasSize = !!extractSizeQuery(ql);
     const hasMoney = /\d+\s*(شيكل|₪)/.test(ql);
-    const hasBrandHint = /joma|skechers|nike|adidas|puma|crocs|mizuno|brooks|asics|diadora|جوما|جومة|سكتشرز|سكيتشرز|نايك|أديداس|اديداس|بوما|كروكس|ميزونو|بروكس|اسكس|ديادورا/i.test(raw);
+
+    // وجود ماركة عبر القاموس يغني عن regex قديمة
+    const hasBrandHint = !!brandInfo;
 
     if (!hasSize && !hasMoney && !hasBrandHint) {
       return {
@@ -624,7 +563,7 @@ if (fee === null) {
     }
   }
 
-  // 5) المقاس فقط → سؤال توضيح (حتى ما نرمي منتج واحد بالغلط)
+  // المقاس فقط
   const askedSize = extractSizeQuery(ql);
   if (askedSize && isOnlySizeQuery(raw)) {
     return {
@@ -635,103 +574,49 @@ if (fee === null) {
     };
   }
 
-  // 6) بحث عام
-  const result = searchKnowledge(raw, { brandCanon: brandCanonRaw });
-
-  if (result.type === "hit" && result.item) {
-    const slug = String(result.item.product_slug || "").toLowerCase();
-    const isPolicyLike = slug.startsWith("policy-") || slug.startsWith("info-") || slug.startsWith("branch-");
-
-    // حماية: سؤال منتج عام لا يرجع سياسة بالغلط
-    if (isPolicyLike && genericProductAsk) {
-      return {
-        ok: true,
-        found: false,
-        reply: PROFILE.replies_shami.ask_more_for_products,
-        tags: ["lead_product", "needs_clarification"]
-      };
-    }
-
-    return {
-      ok: true,
-      found: true,
-      reply: buildReplyFromItem(result.item),
-      tags: ["lead_product", "price_inquiry"]
-    };
-  }
-
-  if (result.type === "clarify") {
-    const opts = (result.options || []).slice(0, 3);
-
-    if (convKey && choiceMemory) {
-      choiceMemory.set(convKey, { ts: Date.now(), options: opts });
-    }
-
-    const lines = [];
-    lines.push(`${pickOpening()} لقيت أكثر من خيار، اختر رقم:`);
-    opts.forEach((o, i) => {
-      const r = searchKnowledge(o.slug);
-      const it = r?.item;
-      const price = it?.price ? `${it.price} شيكل` : "";
-      const avail = it?.availability ? it.availability : "";
-      const parts = [o.name, price, avail].filter(Boolean);
-      lines.push(`${i + 1}) ${parts.join(" — ")}`);
+  // =========================
+  // Product Router (قبل fallback)
+  // =========================
+  if (isProductIntent(raw) || brandInfo) {
+    const res = searchKnowledge(raw, {
+      brandKey: brandInfo?.brandKey || null,
+      brandExact: !!brandInfo?.exact
     });
-    lines.push("اكتب رقم الخيار فقط (مثال: 1).");
 
+    if (res.type === "hit" && res.item) {
+      return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ["product_hit"] };
+    }
+
+    if (res.type === "clarify") {
+      const opts = (res.options || []).slice(0, 3);
+
+      if (convKey && choiceMemory) {
+        choiceMemory.set(convKey, { ts: Date.now(), options: opts });
+      }
+
+      const lines = [];
+      lines.push(`${pickOpening()} لقيت أكثر من خيار، اختر رقم:`);
+      opts.forEach((o, i) => {
+        const r = searchKnowledge(o.slug);
+        const it = r?.item;
+        const price = it?.price ? `${it.price} شيكل` : "";
+        const avail = it?.availability ? it.availability : "";
+        const parts = [o.name, price, avail].filter(Boolean);
+        lines.push(`${i + 1}) ${parts.join(" — ")}`);
+      });
+      lines.push("اكتب رقم الخيار فقط (مثال: 1).");
+
+      return { ok: true, found: false, reply: lines.join("\n"), tags: ["lead_product", "needs_clarification", "has_choices"] };
+    }
+
+    // none
     return {
       ok: true,
       found: false,
-      reply: lines.join("\n"),
-      tags: ["lead_product", "needs_clarification", "has_choices"]
+      reply: "تمام 😊 ما قدرت أحدد المنتج بالضبط من الرسالة. اكتب اسم المنتج أو الكود/الرابط وبساعدك فورًا.",
+      tags: ["product_none"]
     };
   }
-
-  // 7) فروع
-  if (isBranches) {
-    return {
-      ok: true,
-      found: false,
-      reply: "تمام 😊 بتقصد **موقع الفروع** ولا **موقع المقر**؟ احكيلي شو بدك بالزبط.",
-      tags: ["lead_branches", "needs_clarification"]
-    };
-  }
-// Router شامل: إذا الرسالة تبدو “منتج” لا نسأل سؤال نية عام — نبحث مباشرة
-if (isProductIntent(raw)) {
-  const res = searchKnowledge(raw, { brandCanon: brandCanonRaw });
-
-  if (res.type === "hit") {
-    return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ["product_hit"] };
-  }
-
-  if (res.type === "clarify") {
-    // نعرض خيارات بدل سؤال عام
-    const KNOWLEDGE = getKnowledge();
-const items = (res.options || [])
-  .map(o => KNOWLEDGE.items.find(x => String(x.product_slug || "") === String(o.slug || "")))
-  .filter(Boolean)
-  .slice(0, 3);
-
-const lines = items.map(it =>
-  `${it.name} — ${it.price} شيكل — ${it.availability || "متوفر"}`
-);
-
-    return {
-      ok: true,
-      found: false,
-      reply: `تمام 😊 لقيت أكثر من خيار، اختر رقم:\n\n${lines.join("\n")}\nاكتب رقم الخيار فقط (مثال: 1).`,
-      tags: ["product_clarify"]
-    };
-  }
-
-  // res.type === "none"
-  return {
-    ok: true,
-    found: false,
-    reply: "تمام 😊 ما قدرت أحدد المنتج بالضبط من الرسالة. اكتب اسم المنتج أو الكود/الرابط وبساعدك فورًا.",
-    tags: ["product_none"]
-  };
-}
 
   // fallback
   return {
