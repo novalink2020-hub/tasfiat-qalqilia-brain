@@ -185,6 +185,10 @@ function looksLikeProductCode(s) {
 
 function isProductIntent(rawText) {
   const q = String(rawText || "").toLowerCase().trim();
+    // لا تعتبر السياسات/الخدمات "منتج"
+  if (/(سياسه|سياسة|شروط|خصوصيه|خصوصية|توصيل|شحن|تبديل|استبدال|ارجاع|إرجاع|ترجيع|فروع|فرع|موقع)/i.test(q)) {
+    return false;
+  }
 
   // slug أو كود → منتج مباشرة
   if (looksLikeProductSlug(q) || looksLikeProductCode(q)) return true;
@@ -304,10 +308,18 @@ function searchKnowledge(q) {
   if (!KNOWLEDGE?.items?.length) return { type: "none", askedSize: null };
 
 const rawLower = String(q || "").trim().toLowerCase();
-  const queryLower = normalizeForMatch(q);
-  const rawSlug = rawLower; // للـ slug كما هو بدون تطبيع
+// 1) تطبيع + التقاط ماركة قياسية من الديكشنري (إن وجدت)
+const brandCanon = detectBrandCanonical(q); // مثل: "SKECHERS" / "UNDER ARMOUR" / "ON CLOUD" ...
+const queryLower = normalizeForMatch(`${q} ${brandCanon || ""}`.trim());
 
-  const tokens = tokenize(q);
+// للـ slug كما هو بدون تطبيع
+const rawSlug = rawLower;
+
+// 2) توكنز البحث + حقن الماركة القياسية (لتشتغل مع brand_std داخل المعرفة)
+let tokens = tokenize(q);
+if (brandCanon) {
+  tokens = Array.from(new Set([...tokens, brandCanon.toLowerCase(), brandCanon]));
+}
 
   const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(rawSlug);
   const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
@@ -407,6 +419,14 @@ const tags = normLower(x.brand_tags);
 
 const brandStd = normLower(x.brand_std);
 const brandTags = normLower(x.brand_tags);
+    // Boost قوي لمطابقة الماركة القياسية (حل مشكلة: سكيتشرز → بروكس)
+if (brandCanon) {
+  const bc = normLower(brandCanon);
+  if (brandStd === bc) score += 80;
+  else if (brandTags.includes(bc) || keywords.includes(bc)) score += 35;
+  else score -= 5; // خصم خفيف لمنع خطف نتائج من ماركات ثانية
+}
+
 const gender = normLower(x.gender);
 const gender2 = normLower(x.gender_2);
 const ageGroup = normLower(x.age_group);
