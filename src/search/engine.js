@@ -325,7 +325,7 @@ if (brandCanon) {
   const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
 
   // Brand canonical (إن وجد) — يساعدنا على نتائج ماركة أدق + مقاومة للأخطاء الإملائية
-  const brandCanon = detectBrandCanonical(q);
+  // brandCanon already computed above
 
   // استخراج slug من رابط كامل (مهم لأن normalizeForMatch قد يزيل / )
   const mUrl = rawLower.match(/\/product\/([a-z0-9\-]+)/i);
