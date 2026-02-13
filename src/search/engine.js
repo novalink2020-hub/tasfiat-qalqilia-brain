@@ -543,15 +543,19 @@ if (isReturn) {
     };
   }
 
-  // فروع
-  if (isBranches) {
-    return {
-      ok: true,
-      found: false,
-      reply: "تمام 😊 بتقصد **موقع الفروع** ولا **موقع المقر**؟ احكيلي شو بدك بالزبط.",
-      tags: ["lead_branches", "needs_clarification"]
-    };
-  }
+// 7) فروع (رد مباشر)
+if (isBranches) {
+  const list = (PROFILE.branches || []).map((b, i) =>
+    `${i + 1}) ${b.name}\nالعنوان: ${b.address}\nالخريطة: ${b.maps}`
+  );
+
+  return {
+    ok: true,
+    found: true,
+    reply: `أكيد 😊 مواقع فروع تصفيات قلقيلية:\n\n${list.join("\n\n")}`,
+    tags: ["lead_branches"]
+  };
+}
 
   // طلب عام لمنتج
   const genericProductAsk = /بدّي|بدي|عايز|حذاء|كوتشي|جزمة|بوط|صندل|كروكس|شوز/.test(ql);
