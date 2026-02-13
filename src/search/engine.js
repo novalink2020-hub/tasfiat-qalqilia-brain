@@ -556,19 +556,24 @@ if (isBranches) {
     };
   }
 
-  const list = branches.map((b, i) => {
-    // الرابط مخفي داخل الأيقونة (لا يظهر كنص)
-    const mapIcon = `[🗺️](${b.maps})`;
-    return `${i + 1}) **${b.name}**\n📌 ${b.address}\n${mapIcon} افتح الموقع على Google Maps`;
-  });
+const list = branches.map((b, i) => {
+  const mapIcon = `[🗺️](${b.maps})`;
+  return (
+    `${i + 1}) **${b.name}**\n` +
+    `${b.address}\n` +
+    `${mapIcon} **افتح الخريطة**`
+  );
+});
 
-  return {
-    ok: true,
-    found: true,
-    reply:
-      `أكيد 😊 مواقع فروعنا:\n\n${list.join("\n\n")}\n\n👆 اضغط على أيقونة 🗺️ لفتح Google Maps مباشرة.`,
-    tags: ["lead_branches"]
-  };
+return {
+  ok: true,
+  found: true,
+  reply:
+    `**مواقع فروع تصفيات قلقيلية 📍**\n\n` +
+    `${list.join("\n\n")}\n\n` +
+    `اضغط على 🗺️ لفتح Google Maps.`,
+  tags: ["lead_branches"]
+};
 }
 
 
