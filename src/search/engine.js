@@ -471,15 +471,25 @@ export function handleQuery(q, ctx = {}) {
   const isExchange = /تبديل|استبدال/.test(ql);
   const isBranches = /فرع|فروع|موقع|وين/.test(ql);
 
-  // إرجاع/تبديل
-  if (isReturn || isExchange) {
-    return {
-      ok: true,
-      found: true,
-      reply: PROFILE.replies_shami.policy_return_exchange,
-      tags: ["policy_exchange"]
-    };
-  }
+// 2) إرجاع/تبديل (فصل الردود)
+if (isExchange) {
+  return {
+    ok: true,
+    found: true,
+    reply: PROFILE.replies_shami.policy_exchange_only,
+    tags: ["policy_exchange"]
+  };
+}
+
+if (isReturn) {
+  return {
+    ok: true,
+    found: true,
+    reply: PROFILE.replies_shami.policy_return_only,
+    tags: ["policy_return"]
+  };
+}
+
 
   // توصيل
   if (isShipping) {
