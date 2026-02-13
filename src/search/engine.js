@@ -543,19 +543,34 @@ if (isReturn) {
     };
   }
 
-// 7) فروع (رد مباشر)
+// 7) فروع (رد مباشر + أيقونة فقط كرابط)
 if (isBranches) {
-  const list = (PROFILE.branches || []).map((b, i) =>
-    `${i + 1}) ${b.name}\nالعنوان: ${b.address}\nالخريطة: ${b.maps}`
-  );
+  const branches = PROFILE.branches || [];
+
+  if (!branches.length) {
+    return {
+      ok: true,
+      found: false,
+      reply: "حاليًا ما عندي بيانات الفروع كاملة. اكتب اسم المدينة وبساعدك فورًا 🙏",
+      tags: ["lead_branches"]
+    };
+  }
+
+  const list = branches.map((b, i) => {
+    // الرابط مخفي داخل الأيقونة (لا يظهر كنص)
+    const mapIcon = `[🗺️](${b.maps})`;
+    return `${i + 1}) **${b.name}**\n📌 ${b.address}\n${mapIcon} افتح الموقع على Google Maps`;
+  });
 
   return {
     ok: true,
     found: true,
-    reply: `أكيد 😊 مواقع فروع تصفيات قلقيلية:\n\n${list.join("\n\n")}`,
+    reply:
+      `أكيد 😊 مواقع فروعنا:\n\n${list.join("\n\n")}\n\n👆 اضغط على أيقونة 🗺️ لفتح Google Maps مباشرة.`,
     tags: ["lead_branches"]
   };
 }
+
 
   // طلب عام لمنتج
   const genericProductAsk = /بدّي|بدي|عايز|حذاء|كوتشي|جزمة|بوط|صندل|كروكس|شوز/.test(ql);
