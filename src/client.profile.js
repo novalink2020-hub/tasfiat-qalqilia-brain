@@ -21,7 +21,7 @@ export const PROFILE = Object.freeze({
     {
       name: "فرع رام الله — الماصيون",
       address: "رام الله - الماصيون - بجانب بنك الصفا",
-      maps: "https://maps.app.goo.gl/s9BXqFCxpSVXwQvU9"
+      maps: "https://maps.app.goo.gl/NNyeL2dNdhnXqwQy6"
     },
     {
       name: "فرع رام الله — شارع القدس",
