@@ -584,7 +584,7 @@ export function handleQuery(q, ctx = {}) {
     });
 
     if (res.type === "hit" && res.item) {
-      return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ["product_hit"] };
+      return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ['lead_product','product_hit'] };
     }
 
     if (res.type === "clarify") {
@@ -614,7 +614,7 @@ export function handleQuery(q, ctx = {}) {
       ok: true,
       found: false,
       reply: "تمام 😊 ما قدرت أحدد المنتج بالضبط من الرسالة. اكتب اسم المنتج أو الكود/الرابط وبساعدك فورًا.",
-      tags: ["product_none"]
+      tags: ['lead_product','product_none']
     };
   }
 
