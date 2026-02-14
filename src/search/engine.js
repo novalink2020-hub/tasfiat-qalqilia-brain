@@ -194,8 +194,12 @@ function extractCityFromText(textLower) {
     .replace(/\s+/g, " ")
     .trim();
 
-  const m = clean.match(/(?:على|الى|إلى)\s+(.+)$/);
+const m = clean.match(/(?:على|الى|إلى|ع|ل|عـ:?|لـ)\s+(.+)$/);
   if (m?.[1]) return m[1].trim();
+  // حالات مثل: "توصيل قلقيلية" أو "شحن طولكرم"
+const m2 = clean.match(/^(?:كم\s+)?(?:التوصيل|توصيل|الشحن|شحن)\s+(.+)$/);
+if (m2?.[1]) return m2[1].trim();
+
 
   if (clean.length <= 22) return clean;
 
@@ -469,7 +473,11 @@ export function handleQuery(q, ctx = {}) {
   const isShipping = /توصيل|شحن/.test(ql);
   const isReturn = /إرجاع|ارجاع|ترجيع|استرجاع/.test(ql);
   const isExchange = /تبديل|استبدال/.test(ql);
-  const isBranches = /فرع|فروع|موقع|وين/.test(ql);
+const isBranches =
+  /(فروع|فرع|معرض|معارض|موقعكم|لوكيشن|عنوانكم|وينكم|وين موقعكم)/.test(ql)
+  && !isProductIntent(raw)
+  && !isForeignPlace(raw);
+
 
 // 2) إرجاع/تبديل (فصل الردود)
 if (isExchange) {
