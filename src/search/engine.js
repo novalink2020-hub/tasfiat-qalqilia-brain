@@ -663,7 +663,7 @@ if (isPolicyUsage) {
     });
 
     if (res.type === "hit" && res.item) {
-      return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ['lead_product','product_hit'] };
+      return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ['lead_product','product_hit','product_shown'] };
     }
 
     if (res.type === "clarify") {
