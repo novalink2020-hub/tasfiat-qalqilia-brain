@@ -45,3 +45,40 @@ export async function chatwootSetLabels(conversationId, labels) {
     throw new Error(`Chatwoot labels failed ${r.status}: ${t}`);
   }
 }
+export async function chatwootGetConversation(conversationId) {
+  if (!CONFIG.CHATWOOT_ACCOUNT_ID || !CONFIG.CHATWOOT_API_TOKEN) {
+    throw new Error("Missing CHATWOOT_ACCOUNT_ID or CHATWOOT_API_TOKEN");
+  }
+
+  const url = `${CONFIG.CHATWOOT_BASE_URL}/api/v1/accounts/${CONFIG.CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}`;
+  const r = await fetch(url, {
+    method: "GET",
+    headers: { "api_access_token": CONFIG.CHATWOOT_API_TOKEN }
+  });
+
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`Chatwoot get conversation failed ${r.status}: ${t}`);
+  }
+
+  return r.json();
+}
+
+export async function chatwootGetMessages(conversationId, page = 1) {
+  if (!CONFIG.CHATWOOT_ACCOUNT_ID || !CONFIG.CHATWOOT_API_TOKEN) {
+    throw new Error("Missing CHATWOOT_ACCOUNT_ID or CHATWOOT_API_TOKEN");
+  }
+
+  const url = `${CONFIG.CHATWOOT_BASE_URL}/api/v1/accounts/${CONFIG.CHATWOOT_ACCOUNT_ID}/conversations/${conversationId}/messages?page=${page}`;
+  const r = await fetch(url, {
+    method: "GET",
+    headers: { "api_access_token": CONFIG.CHATWOOT_API_TOKEN }
+  });
+
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`Chatwoot get messages failed ${r.status}: ${t}`);
+  }
+
+  return r.json();
+}
