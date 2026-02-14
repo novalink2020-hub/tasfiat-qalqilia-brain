@@ -158,13 +158,14 @@ function isProductIntent(rawText) {
   }
 
   const t = q.trim();
-  if (t.split(/\s+/).length === 1 && t.length >= 3 && t.length <= 10) return true;
+if (/(موقع|موقعكم|لوكيشن|عنوان|فروع|فرع)/.test(q)) return false;
+if (t.split(/\s+/).length === 1 && t.length >= 3 && t.length <= 10) return true;
 
   return false;
 }
 
 function pickOpening() {
-  const arr = ["تمام 😊", "ولا يهمك 😊", "حاضر 👌", "يسعدني 😊", "على راسي 😊"];
+  const arr = ["تمام 😊", "ولا يهمك 😊", "حاضر 👌", "يسعدني 😊"];
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
@@ -195,7 +196,7 @@ function extractCityFromText(textLower) {
     .trim();
 
   // 1) صيغ الناس: على / الى / إلى / ع / عـ / ل / لـ
-  const m1 = clean.match(/(?:على|الى|إلى|عـ?|لـ?)\s+(.+)$/);
+  const m1 = clean.match(/(?:على|في|داخل|ضمن|جوا:?|الى|إلى|عـ?|لـ?)\s+(.+)$/);
   if (m1?.[1]) return m1[1].trim();
 
   // 2) “توصيل قلقيلية” / “كم التوصيل ع قلقيلية” / “شحن ل حبلة”
@@ -476,8 +477,10 @@ export function handleQuery(q, ctx = {}) {
   const isShipping = /توصيل|شحن/.test(ql);
   const isReturn = /إرجاع|ارجاع|ترجيع|استرجاع/.test(ql);
   const isExchange = /تبديل|استبدال/.test(ql);
+  const isPolicyPrivacy = /سياسة الخصوصية|الخصوصية|privacy/.test(ql);
+const isPolicyUsage = /سياسة الاستخدام|شروط الاستخدام|سياسة الاستعمال|terms|usage/.test(ql);
 const isBranches =
-  /(فروع|فرع|معرض|معارض|مكان|مكانكم|موقعكم|لوكيشن|عنوانكم|وينكم|وين موقعكم)/.test(ql)
+  /(فروع|فرع|معرض|معارض|مكان|مكانكم|موقع|موقعكم|لوكيشن|عنوانكم|وينكم|وين موقعكم)/.test(ql)
   && !isProductIntent(raw)
   && !isForeignPlace(raw);
 
@@ -593,6 +596,24 @@ return {
     `اضغط على 🗺️ لفتح Google Maps.`,
   tags: ["lead_branches"]
 };
+}
+  
+if (isPolicyPrivacy) {
+  return {
+    ok: true,
+    found: true,
+    reply: "أكيد 😊 **سياسة الخصوصية** موجودة على موقعنا. احكيلي شو حاب تعرف بالضبط (البيانات اللي بنجمعها / طريقة الاستخدام / مشاركة البيانات) وبعطيك الجواب المختصر فورًا.",
+    tags: ["policy_privacy"]
+  };
+}
+
+if (isPolicyUsage) {
+  return {
+    ok: true,
+    found: true,
+    reply: "أكيد 😊 **سياسة الاستخدام** موجودة على موقعنا. احكيلي شو بدك تعرف بالضبط (طريقة الطلب / الدفع / الشروط) وبعطيك الجواب المختصر فورًا.",
+    tags: ["policy_usage"]
+  };
 }
 
 
