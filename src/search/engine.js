@@ -460,7 +460,7 @@ export function handleQuery(q, ctx = {}) {
           ok: true,
           found: true,
           reply: buildReplyFromItem(pickedResult.item),
-          tags: ["lead_product", "selection_made", "price_inquiry"]
+          tags: ["lead_product", "selection_made", "price_inquiry", "سلة_التسوق"]
         };
       }
     }
@@ -663,7 +663,7 @@ if (isPolicyUsage) {
     });
 
     if (res.type === "hit" && res.item) {
-      return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ['lead_product','product_hit'] };
+      return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ['lead_product','product_hit','سلة_التسوق'] };
     }
 
     if (res.type === "clarify") {
