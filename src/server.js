@@ -176,12 +176,12 @@ app.post("/chatwoot/webhook", async (req, res) => {
     });
 
     // أرسل الرد داخل نفس المحادثة
-    await chatwootCreateMessage(conversationId, out.reply);
-
-    // أضف وسوم حسب نتيجة الدماغ (لكن بصيغة وسوم Chatwoot العربية)
     const labels = mapToChatwootLabels(out.tags || []);
-    if (labels.length) {
-      await chatwootSetLabels(conversationId, labels);
+if (labels.length) {
+  await chatwootSetLabels(conversationId, labels);
+}
+
+await chatwootCreateMessage(conversationId, out.reply);
     }
 
     return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
