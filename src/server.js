@@ -14,6 +14,8 @@ import {
 
 
 const app = express();
+// يمنع جدولة أكثر من متابعة سلة لنفس المحادثة
+const pendingCartFollowups = new Map(); // convId -> timeoutId
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 app.use((req, res, next) => {
@@ -94,6 +96,11 @@ console.log("🧾 cart-followup resolved conversationId:", conversationId);
     // مهم: نخليها “بعد عرض منتج” فقط (رسالة صادرة غالبًا)
     // (إذا بدك تشدد أكثر: اشترط وجود label سلة_التسوق بالpayload لو متوفر)
     const convId = String(conversationId);
+    // لو في متابعة مجدولة لنفس المحادثة: تجاهل الطلب
+if (pendingCartFollowups.has(convId)) {
+  console.log("🛑 cart-followup ignored (already scheduled) for", convId);
+  return;
+}
 
     // 2) تحقق من labels الحالية: إذا متابعة_السلة_تمت موجودة، لا تعيد
     const conv = await chatwootGetConversation(convId);
@@ -108,22 +115,34 @@ console.log("🧾 cart-followup resolved conversationId:", conversationId);
 
     // 4) انتظر 90 ثانية
     const delayMs = 90 * 1000;
-    setTimeout(async () => {
-      try {
-        // 5) بعد الانتظار: افحص إذا المستخدم رد
-        const after = await chatwootGetMessages(convId, 1);
-        const afterMsgs = Array.isArray(after?.payload) ? after.payload : [];
+const timeoutId = setTimeout(async () => {
+  try {
+    // (إعادة تحقق) لو الوسم موجود خلال الـ 90 ثانية: لا ترسل
+    const convLatest = await chatwootGetConversation(convId);
+    const labelsNow = Array.isArray(convLatest?.labels) ? convLatest.labels : [];
+    if (labelsNow.includes("متابعة_السلة_تمت")) {
+      console.log("✅ cart-followup canceled (already labeled) for", convId);
+      return;
+    }
 
-        const latestIncoming = afterMsgs.find(m => m.message_type === "incoming");
-        const latestIncomingId = latestIncoming?.id || null;
+    // (اختياري قوي) لو ما عاد في سلة_التسوق: لا ترسل
+    if (!labelsNow.includes("سلة_التسوق")) {
+      console.log("🛑 cart-followup canceled (no cart label) for", convId);
+      return;
+    }
 
-        // إذا تغيّر آخر incoming => المستخدم رد => لا متابعة
-        if (latestIncomingId && beforeIncomingId && latestIncomingId !== beforeIncomingId) {
-          return;
-        }
+    // افحص إذا المستخدم رد خلال الانتظار (آخر incoming تغيّر)
+    const after = await chatwootGetMessages(convId, 20);
+    const afterMsgs = Array.isArray(after?.payload) ? after.payload : [];
+    const latestIncoming = afterMsgs.find(m => m.message_type === "incoming");
+    const latestIncomingId = latestIncoming?.id || null;
 
-        // 6) أرسل رسالة متابعة (CTA واضح)
-const followup =
+    if (latestIncomingId && beforeIncomingId && latestIncomingId !== beforeIncomingId) {
+      console.log("🛑 cart-followup skipped (user replied) for", convId);
+      return;
+    }
+
+    const followup =
 `جاهز نكمّل طلبك؟ 🧾✨
 
 1) افتح المنتج واضغط **أضف إلى السلة**
@@ -134,15 +153,28 @@ const followup =
 وعندك **كود خصم**؟ حطّه بصفحة الدفع قبل الإتمام 🎟️
 بدّك أحسبلك **الإجمالي مع الشحن** بسرعة؟ اكتب اسم مدينتك 👇`;
 
-        await chatwootCreateMessage(convId, followup);
+    await chatwootCreateMessage(convId, followup);
 
-        // 7) ضع وسم “متابعة_السلة_تمت” لمنع التكرار
-        await chatwootSetLabels(convId, ["متابعة_السلة_تمت"]);
-      } catch (e) {
-        console.error("cart-followup job failed:", e);
-      }
-    }, delayMs);
+    // دمج الوسوم بدل الاستبدال
+    const conv2 = await chatwootGetConversation(convId);
+    const existing = Array.isArray(conv2?.labels) ? conv2.labels : [];
+    const merged = Array.from(new Set([...existing, "متابعة_السلة_تمت"]));
+    await chatwootSetLabels(convId, merged);
 
+    console.log("✅ cart-followup sent & labeled for", convId);
+  } catch (e) {
+    console.error("cart-followup job failed:", e);
+  } finally {
+    // فك القفل دائمًا (نجاح/فشل/return)
+    pendingCartFollowups.delete(convId);
+  }
+}, delayMs);
+
+pendingCartFollowups.set(convId, timeoutId);
+
+
+pendingCartFollowups.set(convId, timeoutId);
+    
   } catch (e) {
     console.error(e);
     // (مهم) حتى لو صار خطأ قبل res، رجّع شيء
