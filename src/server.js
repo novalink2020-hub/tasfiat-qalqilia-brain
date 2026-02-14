@@ -29,11 +29,15 @@ function mapToChatwootLabels(tags = []) {
   // خارج المعرفة
   if (t.has("خارج_المعرفة")) return ["خارج_المعرفة"];
 
+  // سلة التسوق (بعد عرض منتج واحد أو اختيار من القائمة)
+  if (t.has("سلة_التسوق")) return ["سلة_التسوق"];
+
   // تصعيد
   if (t.has("تصعيد")) return ["تصعيد"];
 
   return [];
 }
+
 
 // ===== ROUTES =====
 app.get("/", (req, res) => {
