@@ -477,7 +477,7 @@ export function handleQuery(q, ctx = {}) {
   const isReturn = /إرجاع|ارجاع|ترجيع|استرجاع/.test(ql);
   const isExchange = /تبديل|استبدال/.test(ql);
 const isBranches =
-  /(فروع|فرع|معرض|معارض|موقعكم|لوكيشن|عنوانكم|وينكم|وين موقعكم)/.test(ql)
+  /(فروع|فرع|معرض|معارض|مكان|مكانكم|موقعكم|لوكيشن|عنوانكم|وينكم|وين موقعكم)/.test(ql)
   && !isProductIntent(raw)
   && !isForeignPlace(raw);
 
