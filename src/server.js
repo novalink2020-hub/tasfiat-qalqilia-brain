@@ -182,7 +182,7 @@ if (labels.length) {
 }
 
 await chatwootCreateMessage(conversationId, out.reply);
-    }
+    
 
     return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
   } catch (e) {
