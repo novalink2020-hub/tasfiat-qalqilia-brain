@@ -194,17 +194,20 @@ function extractCityFromText(textLower) {
     .replace(/\s+/g, " ")
     .trim();
 
-const m = clean.match(/(?:على|الى|إلى|ع|ل|عـ:?|لـ)\s+(.+)$/);
-  if (m?.[1]) return m[1].trim();
-  // حالات مثل: "توصيل قلقيلية" أو "شحن طولكرم"
-const m2 = clean.match(/^(?:كم\s+)?(?:التوصيل|توصيل|الشحن|شحن)\s+(.+)$/);
-if (m2?.[1]) return m2[1].trim();
+  // 1) صيغ الناس: على / الى / إلى / ع / عـ / ل / لـ
+  const m1 = clean.match(/(?:على|الى|إلى|عـ?|لـ?)\s+(.+)$/);
+  if (m1?.[1]) return m1[1].trim();
 
+  // 2) “توصيل قلقيلية” / “كم التوصيل ع قلقيلية” / “شحن ل حبلة”
+  const m2 = clean.match(/^(?:كم\s+)?(?:التوصيل|توصيل|الشحن|شحن)\s*(?:على|الى|إلى|عـ?|لـ?)?\s*(.+)$/);
+  if (m2?.[1]) return m2[1].trim();
 
+  // 3) إذا النص كلمة/مدينة قصيرة لوحدها
   if (clean.length <= 22) return clean;
 
   return null;
 }
+
 
 function classifyShipping(cityRaw) {
   const city = String(cityRaw || "").trim();
@@ -499,17 +502,25 @@ if (isReturn) {
 }
 
 
-  // توصيل
-  if (isShipping) {
-    const city = extractCityFromText(ql);
-    if (!city) {
-      return {
-        ok: true,
-        found: false,
-        reply: PROFILE.replies_shami.policy_shipping_intro,
-        tags: ["lead_shipping", "needs_city"]
-      };
-    }
+// توصيل
+if (isShipping) {
+  let city = extractCityFromText(ql);
+
+  if (city) {
+    city = String(city)
+      .replace(/^(?:كم\s+)?(?:التوصيل|توصيل|الشحن|شحن)\s*/i, "")
+      .replace(/^(?:على|الى|إلى|عـ?|لـ?)\s*/i, "")
+      .trim();
+  }
+
+  if (!city) {
+    return {
+      ok: true,
+      found: false,
+      reply: PROFILE.replies_shami.policy_shipping_intro,
+      tags: ["lead_shipping", "needs_city"]
+    };
+  }
 
     const { fee, zone } = classifyShipping(city);
 
