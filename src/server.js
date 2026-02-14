@@ -191,8 +191,6 @@ app.post("/chatwoot/webhook", async (req, res) => {
   }
 });
 
-import { chatwootGetConversation, chatwootGetMessages } from "./chatwoot/client.js";
-
 app.listen(CONFIG.PORT, async () => {
   const k = await loadKnowledge();
   console.log("Service started on", CONFIG.PORT, "knowledge:", k);
