@@ -14,6 +14,10 @@ app.use(express.json({ limit: "1mb" }));
 // ===== Helpers =====
 function mapToChatwootLabels(tags = []) {
   const t = new Set(Array.isArray(tags) ? tags : []);
+  const labels = new Set();
+
+  // سلة التسوق (بعد عرض منتج واحد أو اختيار من القائمة)
+  if (t.has("سلة_التسوق")) labels.add("سلة_التسوق");
 
   // منتجات/سعر
   if (
@@ -23,21 +27,17 @@ function mapToChatwootLabels(tags = []) {
     t.has("selection_made") ||
     t.has("price_inquiry")
   ) {
-    return ["سعر"];
+    labels.add("سعر");
   }
 
   // خارج المعرفة
-  if (t.has("خارج_المعرفة")) return ["خارج_المعرفة"];
-
-  // سلة التسوق (بعد عرض منتج واحد أو اختيار من القائمة)
-  if (t.has("سلة_التسوق")) return ["سلة_التسوق"];
+  if (t.has("خارج_المعرفة")) labels.add("خارج_المعرفة");
 
   // تصعيد
-  if (t.has("تصعيد")) return ["تصعيد"];
+  if (t.has("تصعيد")) labels.add("تصعيد");
 
-  return [];
+  return Array.from(labels);
 }
-
 
 // ===== ROUTES =====
 app.get("/", (req, res) => {
