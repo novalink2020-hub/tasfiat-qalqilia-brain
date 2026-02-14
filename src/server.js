@@ -16,6 +16,10 @@ import {
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
+app.use((req, res, next) => {
+  console.log("➡️", req.method, req.path);
+  next();
+});
 
 // ===== Helpers =====
 function mapToChatwootLabels(tags = []) {
@@ -73,6 +77,7 @@ app.post("/search", async (req, res) => {
 
 app.post("/chatwoot/cart-followup", async (req, res) => {
   try {
+    console.log("🧾 cart-followup payload:", JSON.stringify(req.body || {}, null, 2));
     // 1) نرجع 200 فورًا لChatwoot
     res.json({ ok: true, queued: true });
 
