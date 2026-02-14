@@ -82,9 +82,15 @@ app.post("/chatwoot/cart-followup", async (req, res) => {
     res.json({ ok: true, queued: true });
 
     const body = req.body || {};
-    const conversationId = body.conversation?.id || body.conversation_id || body.conversationId;
+const conversationId =
+  body.conversation?.id ||
+  body.conversation_id ||
+  body.conversationId ||
+  body.id || // ✅ Chatwoot Automation payload غالبًا يحط conversationId هنا
+  body.messages?.[0]?.conversation_id; // ✅ fallback إضافي
     if (!conversationId) return;
-
+console.log("🧾 cart-followup resolved conversationId:", conversationId);
+    
     // مهم: نخليها “بعد عرض منتج” فقط (رسالة صادرة غالبًا)
     // (إذا بدك تشدد أكثر: اشترط وجود label سلة_التسوق بالpayload لو متوفر)
     const convId = String(conversationId);
