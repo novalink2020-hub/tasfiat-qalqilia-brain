@@ -65,6 +65,73 @@ app.post("/search", async (req, res) => {
   }
 });
 
+app.post("/chatwoot/cart-followup", async (req, res) => {
+  try {
+    // 1) نرجع 200 فورًا لChatwoot
+    res.json({ ok: true, queued: true });
+
+    const body = req.body || {};
+    const conversationId = body.conversation?.id || body.conversation_id || body.conversationId;
+    if (!conversationId) return;
+
+    // مهم: نخليها “بعد عرض منتج” فقط (رسالة صادرة غالبًا)
+    // (إذا بدك تشدد أكثر: اشترط وجود label سلة_التسوق بالpayload لو متوفر)
+    const convId = String(conversationId);
+
+    // 2) تحقق من labels الحالية: إذا متابعة_السلة_تمت موجودة، لا تعيد
+    const conv = await chatwootGetConversation(convId);
+    const existingLabels = Array.isArray(conv?.labels) ? conv.labels : [];
+    if (existingLabels.includes("متابعة_السلة_تمت")) return;
+
+    // 3) سجل نقطة البداية: آخر رسالة الآن (لنعرف هل صار رد بعدين)
+    const before = await chatwootGetMessages(convId, 1);
+    const beforeMsgs = Array.isArray(before?.payload) ? before.payload : [];
+    const beforeLatestIncoming = beforeMsgs.find(m => m.message_type === "incoming");
+    const beforeIncomingId = beforeLatestIncoming?.id || null;
+
+    // 4) انتظر 90 ثانية
+    const delayMs = 90 * 1000;
+    setTimeout(async () => {
+      try {
+        // 5) بعد الانتظار: افحص إذا المستخدم رد
+        const after = await chatwootGetMessages(convId, 1);
+        const afterMsgs = Array.isArray(after?.payload) ? after.payload : [];
+
+        const latestIncoming = afterMsgs.find(m => m.message_type === "incoming");
+        const latestIncomingId = latestIncoming?.id || null;
+
+        // إذا تغيّر آخر incoming => المستخدم رد => لا متابعة
+        if (latestIncomingId && beforeIncomingId && latestIncomingId !== beforeIncomingId) {
+          return;
+        }
+
+        // 6) أرسل رسالة متابعة (CTA واضح)
+        const followup =
+`جاهز أكملك الطلب؟ 🧾✨
+
+1) افتح المنتج واضغط **أضف إلى السلة**
+2) كمّل بياناتك: الاسم + الهاتف + المدينة + العنوان
+3) اختر الشحن واضغط **التالي** ثم **إتمام الشراء**
+
+إذا بتحب أحسبلك **الإجمالي مع الشحن** بسرعة، اكتب اسم مدينتك 👇`;
+
+        await chatwootCreateMessage(convId, followup);
+
+        // 7) ضع وسم “متابعة_السلة_تمت” لمنع التكرار
+        await chatwootSetLabels(convId, ["متابعة_السلة_تمت"]);
+      } catch (e) {
+        console.error("cart-followup job failed:", e);
+      }
+    }, delayMs);
+
+  } catch (e) {
+    console.error(e);
+    // (مهم) حتى لو صار خطأ قبل res، رجّع شيء
+    try { res.json({ ok: false, error: "cart_followup_failed" }); } catch {}
+  }
+});
+
+
 // Webhook من Chatwoot: message_created
 app.post("/chatwoot/webhook", async (req, res) => {
   try {
@@ -117,6 +184,8 @@ app.post("/chatwoot/webhook", async (req, res) => {
     return res.json({ ok: false, error: "webhook_failed" });
   }
 });
+
+import { chatwootGetConversation, chatwootGetMessages } from "./chatwoot/client.js";
 
 app.listen(CONFIG.PORT, async () => {
   const k = await loadKnowledge();
