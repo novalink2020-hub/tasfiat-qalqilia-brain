@@ -507,14 +507,16 @@ if (isReturn) {
 
 // توصيل
 if (isShipping) {
-  let city = extractCityFromText(ql);
+let city = extractCityFromText(ql);
 
-  if (city) {
-    city = String(city)
-      .replace(/^(?:كم\s+)?(?:التوصيل|توصيل|الشحن|شحن)\s*/i, "")
-      .replace(/^(?:على|الى|إلى|عـ?|لـ?)\s*/i, "")
-      .trim();
-  }
+if (city) {
+  city = String(city)
+    // شيل مقدّمات شائعة
+    .replace(/^(?:كم\s+)?(?:التوصيل|توصيل|الشحن|شحن)\s*/i, "")
+    // شيل أدوات الربط/المكان (هنا الإصلاح الحقيقي)
+    .replace(/^(?:على|في|داخل|ضمن|جوا:?|الى|إلى|عـ?|لـ?)\s*/i, "")
+    .trim();
+}
 
   if (!city) {
     return {
