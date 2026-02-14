@@ -5,7 +5,13 @@ import { CONFIG } from "./config.js";
 import { seenMessageIds, choiceMemory } from "./state/memoryStore.js";
 import { loadKnowledge, getKnowledge } from "./knowledge/loader.js";
 import { handleQuery } from "./search/engine.js";
-import { chatwootCreateMessage, chatwootSetLabels } from "./chatwoot/client.js";
+import {
+  chatwootCreateMessage,
+  chatwootSetLabels,
+  chatwootGetConversation,
+  chatwootGetMessages
+} from "./chatwoot/client.js";
+
 
 const app = express();
 app.use(cors());
