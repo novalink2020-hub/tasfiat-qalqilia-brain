@@ -1,4 +1,6 @@
 // Stage 2: Human-friendly replies + numbered choices + basic intent handling (Chatwoot-safe)
+// ✅ Updated for NEW knowledge schema: section + audience + keywords + brand_tags (and NO age_group)
+
 import { getKnowledge } from "../knowledge/loader.js";
 import { classifyCityZone } from "../geo/classifier.js";
 import { detectOutOfScopePlace } from "../geo/out-of-scope.js";
@@ -7,6 +9,10 @@ import { buildReplyFromItem } from "../replies/presenter.js";
 import fs from "fs";
 import path from "path";
 import { normalizeForMatch, tokenize } from "../text/normalize.js";
+
+/* =========================
+   Basic text utils
+   ========================= */
 
 function stripHtml(s) {
   return String(s || "")
@@ -29,6 +35,7 @@ function normLower(v) {
   return String(v || "").toLowerCase();
 }
 
+/** Arabic folding to catch typos + normalize variations */
 function normalizeArabic(s) {
   const x = String(s || "");
   return x
@@ -37,7 +44,7 @@ function normalizeArabic(s) {
     .replace(/ى/g, "ي") // yaa/maqsura
     .replace(/ة/g, "ه") // ta marbuta -> ha
     .replace(/ـ/g, "") // tatweel
-    .replace(/(.)\1{2,}/g, "$1$1") // repeated letters
+    .replace(/(.)\1{2,}/g, "$1$1") // repeated letters (3+ -> 2)
     .trim();
 }
 
@@ -46,12 +53,35 @@ function extractMoneyQuery(queryLower) {
   return m ? Number(m[1]) : null;
 }
 
+/**
+ * Legacy gender hint (kept for compatibility with old intents),
+ * but NEW schema uses audience (رجالي/ستاتي/ولادي/بناتي) for scoring.
+ */
 function extractGenderHint(queryLower) {
   const q = String(queryLower || "");
-  if (/رجالي|للرجال|شباب/.test(q)) return "male";
-  if (/نسائي|للنساء|بنات|ستاتي|حريمي/.test(q)) return "female";
-  if (/ولادي|أولادي|اطفال|أطفال|صبيان/.test(q)) return "kids_male";
-  if (/بناتي|أطفال بنات|بنوتي/.test(q)) return "kids_female";
+  if (/رجالي|للرجال|شباب|رجال/.test(q)) return "male";
+  if (/نسائي|للنساء|بنات|ستاتي|حريمي|نساء/.test(q)) return "female";
+  if (/ولادي|أولادي|اطفال|أطفال|صبيان|اولاد|مدارس/.test(q)) return "kids_male";
+  if (/بناتي|بنوتي|طفله|طفلة/.test(q)) return "kids_female";
+  return null;
+}
+
+/** NEW: section hint from user query */
+function extractSectionHint(queryLower) {
+  const q = String(queryLower || "");
+  if (/عطر|عطور|برفان|كولونيا|perfume/.test(q)) return "عطور";
+  if (/تي\s?شيرت|قميص|بنطلون|هودي|جاكيت|بلوزه|بلوزة|ملابس|ترينج|تريننج|فستان/.test(q)) return "ملابس";
+  if (/حذاء|احذيه|أحذية|جزمه|جزمة|كوتشي|شوز|بوت|صندل|شبشب|كروكس/.test(q)) return "أحذية";
+  return null;
+}
+
+/** NEW: audience hint from user query */
+function extractAudienceHint(queryLower) {
+  const q = String(queryLower || "");
+  if (/رجالي|للرجال|شباب|رجال/.test(q)) return "رجالي";
+  if (/ستاتي|نسائي|للنساء|حريمي|نساء/.test(q)) return "ستاتي";
+  if (/ولادي|أولاد|اولاد|صبيان|اطفال|أطفال|طفل|مدارس/.test(q)) return "ولادي";
+  if (/بناتي|بنات|بنوتي|طفله|طفلة|مدارس/.test(q)) return "بناتي";
   return null;
 }
 
@@ -70,9 +100,10 @@ function isOnlySizeQuery(raw) {
   return /^\d{2}(\.\d)?$/.test(s);
 }
 
-// =========================
-// Brand dictionary (your schema: brand_std + aliases)
-// =========================
+/* =========================
+   Brand dictionary (brand_std + aliases)
+   ========================= */
+
 let BRAND_CACHE = null;
 
 function normKey(s) {
@@ -92,7 +123,7 @@ function loadBrandDictionaryOnce() {
   const brands = Array.isArray(raw?.brands) ? raw.brands : [];
 
   BRAND_CACHE = brands
-    .map(b => {
+    .map((b) => {
       const brandStd = String(b?.brand_std || "").trim();
       if (!brandStd) return null;
 
@@ -101,7 +132,7 @@ function loadBrandDictionaryOnce() {
         .concat(Array.isArray(b?.aliases) ? b.aliases : [])
         .concat(Array.isArray(b?.normalize_from_knowledge_brand_std) ? b.normalize_from_knowledge_brand_std : [])
         .filter(Boolean)
-        .map(x => String(x).trim())
+        .map((x) => String(x).trim())
         .filter(Boolean);
 
       const brandKey = normKey(brandStd);
@@ -135,6 +166,82 @@ function detectBrandInfo(text) {
   return null;
 }
 
+/* =========================
+   NEW: Brand fallback from knowledge.brand_tags
+   (in case dictionary misses a brand/typo variant)
+   ========================= */
+
+let BRAND_TAG_INDEX = null;
+
+function buildBrandTagIndexOnce() {
+  if (BRAND_TAG_INDEX) return BRAND_TAG_INDEX;
+
+  const KNOWLEDGE = getKnowledge();
+  const index = new Map(); // aliasKey -> { brandStd, brandKey }
+
+  const items = Array.isArray(KNOWLEDGE?.items) ? KNOWLEDGE.items : [];
+  for (const x of items) {
+    const bStd = String(x?.brand_std || "").trim();
+    if (!bStd) continue;
+
+    const bKey = normKey(bStd);
+    if (!bKey) continue;
+
+    const tagsRaw = String(x?.brand_tags || "");
+    const tags = tagsRaw
+      .split("|")
+      .map((t) => String(t || "").trim())
+      .filter(Boolean);
+
+    // include std itself too
+    tags.push(bStd);
+
+    for (const t of tags) {
+      const k = normKey(t);
+      if (!k) continue;
+      if (!index.has(k)) index.set(k, { brandStd: bStd, brandKey: bKey });
+    }
+  }
+
+  BRAND_TAG_INDEX = index;
+  return BRAND_TAG_INDEX;
+}
+
+function detectBrandFromKnowledgeTags(text) {
+  const qKey = normKey(text);
+  if (!qKey) return null;
+
+  const idx = buildBrandTagIndexOnce();
+
+  // exact
+  if (idx.has(qKey)) {
+    const b = idx.get(qKey);
+    return { ...b, exact: true, source: "knowledge_tags" };
+  }
+
+  // contains: try tokens first for speed, then fallback to scanning map keys
+  const toks = tokenize(text).map(normKey).filter(Boolean);
+  for (const t of toks) {
+    if (idx.has(t)) {
+      const b = idx.get(t);
+      return { ...b, exact: false, source: "knowledge_tags" };
+    }
+  }
+
+  // slow path (still ok for typical sizes): scan keys
+  for (const [k, b] of idx.entries()) {
+    if (k && (qKey.includes(k) || k.includes(qKey))) {
+      return { ...b, exact: false, source: "knowledge_tags" };
+    }
+  }
+
+  return null;
+}
+
+/* =========================
+   Intent heuristics
+   ========================= */
+
 function looksLikeProductSlug(s) {
   const q = String(s || "").trim();
   return /^[a-z0-9]+(?:-[a-z0-9]+){2,}$/i.test(q);
@@ -151,15 +258,19 @@ function isProductIntent(rawText) {
   if (looksLikeProductSlug(q) || looksLikeProductCode(q)) return true;
 
   // وجود ماركة (حتى غلط إملائي) = نية منتج
-  if (detectBrandInfo(rawText)) return true;
+  if (detectBrandInfo(rawText) || detectBrandFromKnowledgeTags(rawText)) return true;
 
-  if (/(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|شنطه|شنطة|عطر|برفان|كرة قدم|مدارس|جري|مشي|تدريب|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(q)) {
+  if (
+    /(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|شنطه|شنطة|عطر|برفان|كرة قدم|مدارس|جري|مشي|تدريب|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(
+      q
+    )
+  ) {
     return true;
   }
 
   const t = q.trim();
-if (/(موقع|موقعكم|لوكيشن|عنوان|فروع|فرع)/.test(q)) return false;
-if (t.split(/\s+/).length === 1 && t.length >= 3 && t.length <= 10) return true;
+  if (/(موقع|موقعكم|لوكيشن|عنوان|فروع|فرع)/.test(q)) return false;
+  if (t.split(/\s+/).length === 1 && t.length >= 3 && t.length <= 10) return true;
 
   return false;
 }
@@ -169,7 +280,10 @@ function pickOpening() {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-// ====== Shipping helpers ======
+/* =========================
+   Shipping helpers
+   ========================= */
+
 let FOREIGN_CACHE = null;
 
 function loadForeignPlacesOnce() {
@@ -177,7 +291,7 @@ function loadForeignPlacesOnce() {
   const p = path.resolve("src/text/foreign_places.json");
   const raw = JSON.parse(fs.readFileSync(p, "utf8"));
   const arr = Array.isArray(raw?.places) ? raw.places : [];
-  FOREIGN_CACHE = arr.map(x => normalizeForMatch(x)).filter(Boolean);
+  FOREIGN_CACHE = arr.map((x) => normalizeForMatch(x)).filter(Boolean);
   return FOREIGN_CACHE;
 }
 
@@ -185,7 +299,7 @@ function isForeignPlace(text) {
   const q = normalizeForMatch(text);
   if (!q) return false;
   const list = loadForeignPlacesOnce();
-  return list.some(k => k && (q.includes(k) || k.includes(q)));
+  return list.some((k) => k && (q.includes(k) || k.includes(q)));
 }
 
 function extractCityFromText(textLower) {
@@ -208,7 +322,6 @@ function extractCityFromText(textLower) {
 
   return null;
 }
-
 
 function classifyShipping(cityRaw) {
   const city = String(cityRaw || "").trim();
@@ -241,7 +354,10 @@ function classifyShipping(cityRaw) {
   return { fee: null, zone: "unknown" };
 }
 
-// ====== Knowledge search ======
+/* =========================
+   Knowledge search (NEW schema aware)
+   ========================= */
+
 function isUsableProductItem(x) {
   const hasName = String(x?.name || "").trim().length >= 2;
   const hasUrl = String(x?.page_url || "").trim().startsWith("http");
@@ -249,12 +365,93 @@ function isUsableProductItem(x) {
   return hasName && hasUrl && hasSlug;
 }
 
+let SLUG_INDEX = null;
+
+function buildSlugIndexOnce() {
+  if (SLUG_INDEX) return SLUG_INDEX;
+  const KNOWLEDGE = getKnowledge();
+  const idx = new Map();
+  const items = Array.isArray(KNOWLEDGE?.items) ? KNOWLEDGE.items : [];
+  for (const x of items) {
+    const slug = String(x?.product_slug || "").trim().toLowerCase();
+    if (!slug) continue;
+    if (!idx.has(slug)) idx.set(slug, x);
+  }
+  SLUG_INDEX = idx;
+  return SLUG_INDEX;
+}
+
+function getItemBySlug(slug) {
+  const s = String(slug || "").trim().toLowerCase();
+  if (!s) return null;
+  const idx = buildSlugIndexOnce();
+  return idx.get(s) || null;
+}
+
+function normalizeKeyForScoring(s) {
+  // aggressive matching for section/audience tokens in Arabic
+  return normalizeArabic(normalizeForMatch(String(s || ""))).toLowerCase();
+}
+
+function pickAlternatives(KNOWLEDGE, item, limit = 2) {
+  const sec = String(item?.section || "").trim();
+  const aud = String(item?.audience || "").trim();
+  const bKey = normKey(item?.brand_std || "");
+  const slug = String(item?.product_slug || "").trim().toLowerCase();
+
+  const pool = (KNOWLEDGE?.items || [])
+    .filter((x) => isUsableProductItem(x))
+    .filter((x) => String(x?.product_slug || "").trim().toLowerCase() !== slug)
+    .filter((x) => String(x?.section || "").trim() === sec)
+    .filter((x) => String(x?.audience || "").trim() === aud);
+
+  const sameBrand = pool.filter((x) => normKey(x?.brand_std || "") === bKey);
+
+  const picked = (sameBrand.length ? sameBrand : pool).slice(0, limit);
+
+  return picked.map((x) => ({
+    name: x.name || "",
+    slug: x.product_slug || "",
+    price: x.price || "",
+    availability: x.availability || ""
+  }));
+}
+
+function buildSalesAddon(item, KNOWLEDGE) {
+  if (!item) return "";
+
+  const lines = [];
+
+  // Discount nudge (simple + non-pushy)
+  const hasDiscount = !!item.has_discount;
+  const discountPercent = Number(item.discount_percent || 0);
+  if (hasDiscount && discountPercent > 0) {
+    lines.push(`✨ عليه خصم **${discountPercent}%** حالياً.`);
+  }
+
+  // Alternatives (same section/audience, prefer same brand)
+  const alts = pickAlternatives(KNOWLEDGE, item, 2);
+  if (alts.length) {
+    lines.push(`\nبدائل قريبة بنفس **${item.section || "القسم"}** و **${item.audience || "الفئة"}**:`);
+    alts.forEach((a, i) => {
+      const p = a.price ? `${a.price} شيكل` : "";
+      const av = a.availability ? a.availability : "";
+      const meta = [p, av].filter(Boolean).join(" — ");
+      lines.push(`${i + 1}) ${a.name}${meta ? ` — ${meta}` : ""}`);
+    });
+    lines.push("إذا بتحب، اكتب رقم البديل (1 أو 2) وببعثلك تفاصيله.");
+  }
+
+  return lines.join("\n").trim();
+}
+
 function searchKnowledge(q, opts = {}) {
   const KNOWLEDGE = getKnowledge();
   if (!KNOWLEDGE?.items?.length) return { type: "none", askedSize: null };
 
   const queryLower = normalizeForMatch(q);
-  const tokens = tokenize(q);
+  const queryFold = normalizeKeyForScoring(q);
+  const tokens = tokenize(q).map((t) => normalizeKeyForScoring(t)).filter(Boolean);
 
   const rawSlug = String(q || "").trim().toLowerCase();
   const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(rawSlug);
@@ -263,50 +460,63 @@ function searchKnowledge(q, opts = {}) {
   const brandKey = opts?.brandKey ? String(opts.brandKey) : null;
   const brandExact = !!opts?.brandExact;
 
+  // NEW: section/audience hints
+  const sectionHint = extractSectionHint(queryLower);
+  const audienceHint = extractAudienceHint(queryLower);
+
   // URL -> slug
   const m = String(q || "").match(/\/product\/([a-z0-9\-]+)/i);
   const slugFromUrl = m?.[1] || null;
 
   if (slugFromUrl) {
-    const hit = KNOWLEDGE.items.find(x => normLower(x.product_slug) === slugFromUrl);
+    const hit = getItemBySlug(slugFromUrl);
     if (hit && isUsableProductItem(hit)) return { type: "hit", item: hit, askedSize };
     if (hit) return { type: "none", askedSize };
   }
 
   // exact slug
-  const directSlug = KNOWLEDGE.items.find(x => {
-    const slug = normLower(x.product_slug);
-    return slug && (slug === rawSlug || slug === queryLower);
-  });
+  const directSlug = getItemBySlug(rawSlug) || getItemBySlug(queryLower);
   if (directSlug && isUsableProductItem(directSlug)) return { type: "hit", item: directSlug, askedSize };
   if (directSlug) return { type: "none", askedSize };
 
   const scored = [];
 
   for (const x of KNOWLEDGE.items) {
-    const hasName = String(x?.name || "").trim().length >= 2;
-    const hasUrl = String(x?.page_url || "").trim().startsWith("http");
-    const hasSlug = String(x?.product_slug || "").trim().length >= 2;
-    if (!hasSlug || !hasUrl || !hasName) continue;
+    if (!isUsableProductItem(x)) continue;
 
     const slug = normLower(x.product_slug);
-    const name = normLower(x.name);
-    const keywords = normLower(x.keywords);
-    const tags = normLower(x.brand_tags);
+    const name = String(x.name || "");
+    const nameLow = normLower(name);
+
+    const keywords = String(x.keywords || "");
+    const keywordsLow = normLower(keywords);
+
+    const tags = String(x.brand_tags || "");
+    const tagsLow = normLower(tags);
 
     const brandStdRaw = String(x?.brand_std || "");
     const itemBrandKey = normKey(brandStdRaw);
 
-    // فلترة صارمة إذا الماركة واضحة من القاموس
+    // STRICT brand filter if brandKey is known
     if (brandKey && itemBrandKey && itemBrandKey !== brandKey) continue;
 
-    const gender = normLower(x.gender);
-    const gender2 = normLower(x.gender_2);
-    const ageGroup = normLower(x.age_group);
+    const gender = String(x.gender || "");
+    const gender2 = String(x.gender_2 || "");
+    const genderLow = normLower(gender);
+    const gender2Low = normLower(gender2);
+
+    // NEW schema fields
+    const section = String(x.section || "");
+    const audience = String(x.audience || "");
+    const sectionLow = normLower(section);
+    const audienceLow = normLower(audience);
+
+    const sectionFold = normalizeKeyForScoring(section);
+    const audienceFold = normalizeKeyForScoring(audience);
 
     const sizes = normLower(x.sizes);
-
     const availability = normLower(x.availability);
+
     const price = Number(x.price || 0);
     const hasDiscount = !!x.has_discount;
     const discountPercent = Number(x.discount_percent || 0);
@@ -315,11 +525,11 @@ function searchKnowledge(q, opts = {}) {
       slug.startsWith("policy-") ||
       slug.startsWith("info-") ||
       slug.startsWith("branch-") ||
-      tags.includes("سياسات") ||
-      tags.includes("فروع");
+      tagsLow.includes("سياسات") ||
+      tagsLow.includes("فروع");
 
     if (askedSize && !isPolicyLike) {
-      const list = sizes.split(",").map(s => s.trim());
+      const list = sizes.split(",").map((s) => s.trim());
       if (!list.includes(String(askedSize))) continue;
     }
 
@@ -329,22 +539,27 @@ function searchKnowledge(q, opts = {}) {
 
     let score = 0;
 
-    // لو تم فلترة بالماركة: أعطي كل عناصر الماركة base score حتى ما يطلع "none"
-    if (brandKey && itemBrandKey === brandKey) score += 8;
+    // Brand base score (after filtering)
+    if (brandKey && itemBrandKey === brandKey) score += 14;
 
-    if (name === queryLower) score += 80;
-    if (slug && queryLower === slug) score += 90;
-    if (slug && /[a-z]+\d+/i.test(queryLower) && slug.includes(queryLower)) score += 70;
+    // Strong exact matches
+    if (nameLow === queryLower) score += 90;
+    if (slug && queryLower === slug) score += 95;
+    if (slug && /[a-z]+\d+/i.test(queryLower) && slug.includes(queryLower)) score += 75;
 
-    // brand boost (normalized)
-    if (brandKey && itemBrandKey === brandKey) score += 60;
+    // Brand boost
+    if (brandKey && itemBrandKey === brandKey) score += 55;
 
-    // gender / audience
+    // NEW: section/audience hint boosts (high signal)
+    if (sectionHint && section && section.includes(sectionHint)) score += 26;
+    if (audienceHint && audience && audience.includes(audienceHint)) score += 26;
+
+    // Legacy gender hint boost (lower than audience)
     if (genderHint) {
-      if ((gender.includes("رجال") || gender.includes("male")) && genderHint === "male") score += 25;
-      if ((gender.includes("نساء") || gender.includes("female")) && genderHint === "female") score += 25;
-      if ((gender.includes("ولادي") || gender.includes("kids")) && (genderHint === "kids_male" || genderHint === "kids_female")) score += 18;
-      if (gender.includes("بناتي") && genderHint === "kids_female") score += 22;
+      if ((genderLow.includes("رجال") || genderLow.includes("male")) && genderHint === "male") score += 10;
+      if ((genderLow.includes("نساء") || genderLow.includes("female")) && genderHint === "female") score += 10;
+      if ((genderLow.includes("ولادي") || genderLow.includes("kids")) && (genderHint === "kids_male" || genderHint === "kids_female")) score += 8;
+      if (genderLow.includes("بناتي") && genderHint === "kids_female") score += 9;
     }
 
     if (wantsDiscount) {
@@ -358,28 +573,49 @@ function searchKnowledge(q, opts = {}) {
       else if (diff <= 50) score += 8;
     }
 
-    if (name.includes(queryLower) || queryLower.includes(name)) score += 35;
+    // Partial phrase matches
+    if (nameLow.includes(queryLower) || queryLower.includes(nameLow)) score += 32;
     if (slug && queryLower.includes(slug)) score += 60;
 
-    const hay = `${name} ${keywords} ${tags} ${brandStdRaw} ${gender} ${gender2} ${ageGroup} ${sizes} ${availability} ${slug}`;
+    // NEW hay: include section/audience explicitly
+    const hay =
+      `${nameLow} ${keywordsLow} ${tagsLow} ${normLower(brandStdRaw)} ` +
+      `${genderLow} ${gender2Low} ${sectionLow} ${audienceLow} ${sizes} ${availability} ${slug}`;
+
+    // Token scoring (balanced; keywords are already rich)
+    const isBrandishQuery = tokens.length === 1 && queryFold.length <= 6;
+
     for (const t of tokens) {
       if (!t) continue;
-      if (name.includes(t)) score += 10;
 
-      const isBrandishQuery = (tokens.length === 1 && queryLower.length <= 6);
-      if (keywords.includes(t)) score += (isBrandishQuery ? 22 : 8);
-      if (tags.includes(t)) score += 7;
-      if (gender.includes(t)) score += 6;
-      if (gender2.includes(t)) score += 6;
-      if (ageGroup.includes(t)) score += 5;
-      if (availability.includes(t)) score += 3;
-      if (sizes.includes(t)) score += 12;
-      if (slug.includes(t)) score += 9;
-      if (hay.includes(t)) score += 2;
+      // Folded comparisons for Arabic-ish tokens
+      const inName = normalizeKeyForScoring(nameLow).includes(t);
+      const inSection = sectionFold.includes(t);
+      const inAudience = audienceFold.includes(t);
+
+      if (inName) score += 10;
+
+      // keywords + brand_tags are the core
+      if (normalizeKeyForScoring(keywordsLow).includes(t)) score += isBrandishQuery ? 22 : 8;
+      if (normalizeKeyForScoring(tagsLow).includes(t)) score += 9;
+
+      // section/audience are high intent too
+      if (inSection) score += 8;
+      if (inAudience) score += 8;
+
+      // legacy fields (lower)
+      if (normalizeKeyForScoring(genderLow).includes(t)) score += 5;
+      if (normalizeKeyForScoring(gender2Low).includes(t)) score += 5;
+
+      if (sizes.includes(String(t).replace(/[^\d.]/g, ""))) score += 12;
+      if (slug.includes(String(t).replace(/\s+/g, ""))) score += 9;
+
+      if (hay.includes(String(t))) score += 2;
     }
 
+    // Policies
     const policyHints = ["توصيل", "شحن", "تبديل", "استبدال", "إرجاع", "خصوصية", "سياسة", "شروط", "فروع", "موقع"];
-    if (isPolicyLike && policyHints.some(h => queryLower.includes(h))) score += 25;
+    if (isPolicyLike && policyHints.some((h) => queryLower.includes(h))) score += 25;
 
     if (score > 0) scored.push({ item: x, score });
   }
@@ -387,9 +623,9 @@ function searchKnowledge(q, opts = {}) {
   scored.sort((a, b) => b.score - a.score);
   if (!scored.length) return { type: "none", askedSize };
 
-  // ماركة فقط (exact) => اعرض أفضل 3 دائمًا
+  // Brand only (exact) => show top 3 always
   if (brandKey && brandExact) {
-    const options = scored.slice(0, 3).map(s => ({
+    const options = scored.slice(0, 3).map((s) => ({
       slug: s.item.product_slug || "",
       name: s.item.name || ""
     }));
@@ -399,15 +635,15 @@ function searchKnowledge(q, opts = {}) {
   const top = scored[0];
   const second = scored[1];
 
-  // لو فلترنا بالماركة: لا تشدد minScore كثير (لأن الفلترة نفسها قوية)
   const isBrandFiltered = !!brandKey;
-  const isBrandishQueryFinal = (tokens.length === 1 && queryLower.length <= 6);
+  const isBrandishQueryFinal = tokens.length === 1 && queryFold.length <= 6;
 
-  const minScore = isBrandFiltered ? 6 : (isBrandishQueryFinal ? 12 : 25);
+  // NEW thresholds: a bit more tolerant because keywords are rich and section/audience help
+  const minScore = isBrandFiltered ? 8 : isBrandishQueryFinal ? 12 : 24;
   if (top.score < minScore) return { type: "none", askedSize };
 
-  if (second && second.score >= top.score - 5) {
-    const options = scored.slice(0, 4).map(s => ({
+  if (second && second.score >= top.score - 6) {
+    const options = scored.slice(0, 4).map((s) => ({
       slug: s.item.product_slug || "",
       name: s.item.name || ""
     }));
@@ -417,11 +653,18 @@ function searchKnowledge(q, opts = {}) {
   return { type: "hit", item: top.item, askedSize };
 }
 
+/* =========================
+   Main handler
+   ========================= */
+
 export function handleQuery(q, ctx = {}) {
   const raw = normalizeText(q);
   const ql = raw.toLowerCase();
 
-  const brandInfo = detectBrandInfo(raw); // {brandStd, brandKey, exact} أو null
+  // 1) Brand detection: dictionary first, then knowledge.brand_tags fallback
+  const brandInfoPrimary = detectBrandInfo(raw); // {brandStd, brandKey, exact} أو null
+  const brandInfoFallback = brandInfoPrimary ? null : detectBrandFromKnowledgeTags(raw);
+  const brandInfo = brandInfoPrimary || brandInfoFallback;
 
   // شكر/إغلاق
   if (/^(شكرا|شكرًا|يسلمو|يسلموا|مشكور|تسلم)\s*$/i.test(raw)) {
@@ -434,7 +677,11 @@ export function handleQuery(q, ctx = {}) {
   }
 
   // طلب موظف
-if (/بدي حدا احكي معاه|بدي احكي مع موظف|موظف|خدمة العملاء|بدي دعم|مساعدة|بدي مساعدة|مساعده|معلق|معلّق|مش راضي يكمل|ما بقدر اكمل|ما قدرت اكمل|وقف معي|مشكلة بالدفع|مشكلة بالطلب|مش شغال|مش زابط/i.test(raw)) {
+  if (
+    /بدي حدا احكي معاه|بدي احكي مع موظف|موظف|خدمة العملاء|بدي دعم|مساعدة|بدي مساعدة|مساعده|معلق|معلّق|مش راضي يكمل|ما بقدر اكمل|ما قدرت اكمل|وقف معي|مشكلة بالدفع|مشكلة بالطلب|مش شغال|مش زابط/i.test(
+      raw
+    )
+  ) {
     return {
       ok: true,
       found: false,
@@ -447,7 +694,7 @@ if (/بدي حدا احكي معاه|بدي احكي مع موظف|موظف|خد
   const choiceMemory = ctx?.choiceMemory;
   const convKey = conversationId !== null ? String(conversationId) : null;
 
-  // اختيار رقم من قائمة
+  // اختيار رقم من قائمة (generic)
   const choiceNum = raw.match(/^\s*([1-4])\s*$/)?.[1] || null;
   if (choiceNum && convKey && choiceMemory?.has(convKey)) {
     const mem = choiceMemory.get(convKey);
@@ -456,10 +703,12 @@ if (/بدي حدا احكي معاه|بدي احكي مع موظف|موظف|خد
     if (picked?.slug) {
       const pickedResult = searchKnowledge(picked.slug);
       if (pickedResult.type === "hit" && pickedResult.item) {
+        const KNOWLEDGE = getKnowledge();
+        const addon = buildSalesAddon(pickedResult.item, KNOWLEDGE);
         return {
           ok: true,
           found: true,
-          reply: buildReplyFromItem(pickedResult.item),
+          reply: addon ? `${buildReplyFromItem(pickedResult.item)}\n\n${addon}` : buildReplyFromItem(pickedResult.item),
           tags: ["lead_product", "selection_made", "price_inquiry", "سلة_التسوق"]
         };
       }
@@ -478,54 +727,51 @@ if (/بدي حدا احكي معاه|بدي احكي مع موظف|موظف|خد
   const isReturn = /إرجاع|ارجاع|ترجيع|استرجاع/.test(ql);
   const isExchange = /تبديل|استبدال/.test(ql);
   const isPolicyPrivacy = /سياسة الخصوصية|الخصوصية|privacy/.test(ql);
-const isPolicyUsage = /سياسة الاستخدام|شروط الاستخدام|سياسة الاستعمال|terms|usage/.test(ql);
-const isBranches =
-  /(فروع|فرع|معرض|معارض|مكان|مكانكم|موقع|موقعكم|لوكيشن|عنوانكم|وينكم|وين موقعكم)/.test(ql)
-  && !isProductIntent(raw)
-  && !isForeignPlace(raw);
+  const isPolicyUsage = /سياسة الاستخدام|شروط الاستخدام|سياسة الاستعمال|terms|usage/.test(ql);
 
+  const isBranches =
+    /(فروع|فرع|معرض|معارض|مكان|مكانكم|موقع|موقعكم|لوكيشن|عنوانكم|وينكم|وين موقعكم)/.test(ql) &&
+    !isProductIntent(raw) &&
+    !isForeignPlace(raw);
 
-// 2) إرجاع/تبديل (فصل الردود)
-if (isExchange) {
-  return {
-    ok: true,
-    found: true,
-    reply: PROFILE.replies_shami.policy_exchange_only,
-    tags: ["policy_exchange"]
-  };
-}
-
-if (isReturn) {
-  return {
-    ok: true,
-    found: true,
-    reply: PROFILE.replies_shami.policy_return_only,
-    tags: ["policy_return"]
-  };
-}
-
-
-// توصيل
-if (isShipping) {
-let city = extractCityFromText(ql);
-
-if (city) {
-  city = String(city)
-    // شيل مقدّمات شائعة
-    .replace(/^(?:كم\s+)?(?:التوصيل|توصيل|الشحن|شحن)\s*/i, "")
-    // شيل أدوات الربط/المكان (هنا الإصلاح الحقيقي)
-    .replace(/^(?:على|في|داخل|ضمن|جوا:?|الى|إلى|عـ?|لـ?)\s*/i, "")
-    .trim();
-}
-
-  if (!city) {
+  // إرجاع/تبديل
+  if (isExchange) {
     return {
       ok: true,
-      found: false,
-      reply: PROFILE.replies_shami.policy_shipping_intro,
-      tags: ["lead_shipping", "needs_city"]
+      found: true,
+      reply: PROFILE.replies_shami.policy_exchange_only,
+      tags: ["policy_exchange"]
     };
   }
+
+  if (isReturn) {
+    return {
+      ok: true,
+      found: true,
+      reply: PROFILE.replies_shami.policy_return_only,
+      tags: ["policy_return"]
+    };
+  }
+
+  // توصيل
+  if (isShipping) {
+    let city = extractCityFromText(ql);
+
+    if (city) {
+      city = String(city)
+        .replace(/^(?:كم\s+)?(?:التوصيل|توصيل|الشحن|شحن)\s*/i, "")
+        .replace(/^(?:على|في|داخل|ضمن|جوا:?|الى|إلى|عـ?|لـ?)\s*/i, "")
+        .trim();
+    }
+
+    if (!city) {
+      return {
+        ok: true,
+        found: false,
+        reply: PROFILE.replies_shami.policy_shipping_intro,
+        tags: ["lead_shipping", "needs_city"]
+      };
+    }
 
     const { fee, zone } = classifyShipping(city);
 
@@ -567,60 +813,53 @@ if (city) {
     };
   }
 
-// 7) فروع (رد مباشر + أيقونة فقط كرابط)
-if (isBranches) {
-  const branches = PROFILE.branches || [];
+  // فروع
+  if (isBranches) {
+    const branches = PROFILE.branches || [];
 
-  if (!branches.length) {
+    if (!branches.length) {
+      return {
+        ok: true,
+        found: false,
+        reply: "حاليًا ما عندي بيانات الفروع كاملة. اكتب اسم المدينة وبساعدك فورًا 🙏",
+        tags: ["lead_branches"]
+      };
+    }
+
+    const list = branches.map((b, i) => {
+      const mapIcon = `[🗺️](${b.maps})`;
+      return `${i + 1}) **${b.name}**\n${b.address}\n${mapIcon} **افتح الخريطة**`;
+    });
+
     return {
       ok: true,
-      found: false,
-      reply: "حاليًا ما عندي بيانات الفروع كاملة. اكتب اسم المدينة وبساعدك فورًا 🙏",
+      found: true,
+      reply: `**مواقع فروع تصفيات قلقيلية 📍**\n\n${list.join("\n\n")}\n\nاضغط على 🗺️ لفتح Google Maps.`,
       tags: ["lead_branches"]
     };
   }
 
-const list = branches.map((b, i) => {
-  const mapIcon = `[🗺️](${b.maps})`;
-  return (
-    `${i + 1}) **${b.name}**\n` +
-    `${b.address}\n` +
-    `${mapIcon} **افتح الخريطة**`
-  );
-});
+  if (isPolicyPrivacy) {
+    return {
+      ok: true,
+      found: true,
+      reply:
+        `أكيد 😊 سياسة الخصوصية موجودة هنا: [اضغط هنا](https://tasfiat-qalqilia.ps/ar/syas-alkhsosy)\n` +
+        `إذا بدك أكمل معك بطلبك (منتج/توصيل/تبديل)، احكيلي شو بدك بالضبط.`,
+      tags: ["policy_privacy"]
+    };
+  }
 
-return {
-  ok: true,
-  found: true,
-  reply:
-    `**مواقع فروع تصفيات قلقيلية 📍**\n\n` +
-    `${list.join("\n\n")}\n\n` +
-    `اضغط على 🗺️ لفتح Google Maps.`,
-  tags: ["lead_branches"]
-};
-}
-  
-if (isPolicyPrivacy) {
-  return {
-    ok: true,
-    found: true,
-    reply:
-      `أكيد 😊 سياسة الخصوصية موجودة هنا: [اضغط هنا](https://tasfiat-qalqilia.ps/ar/syas-alkhsosy)\n` +
-      `إذا بدك أكمل معك بطلبك (منتج/توصيل/تبديل)، احكيلي شو بدك بالضبط.`,
-    tags: ["policy_privacy"]
-  };
-}
-
-if (isPolicyUsage) {
-  return {
-    ok: true,
-    found: true,
-    reply:
-      `أكيد 😊 سياسة الاستخدام موجودة هنا: [اضغط هنا](https://tasfiat-qalqilia.ps/ar/syas-alastkhdam)\n` +
-      `إذا بدك أكمل معك بطلبك (منتج/توصيل/تبديل)، احكيلي شو بدك بالضبط.`,
-    tags: ["policy_usage"]
-  };
-}
+  if (isPolicyUsage) {
+    return {
+      ok: true,
+      found: true,
+      reply:
+        `أكيد 😊 سياسة الاستخدام موجودة هنا: [اضغط هنا](https://tasfiat-qalqilia.ps/ar/syas-alastkhdam)\n` +
+        `إذا بدك أكمل معك بطلبك (منتج/توصيل/تبديل)، احكيلي شو بدك بالضبط.`,
+      tags: ["policy_usage"]
+    };
+  }
 
   // طلب عام لمنتج
   const genericProductAsk = /بدّي|بدي|عايز|حذاء|كوتشي|جزمة|بوط|صندل|كروكس|شوز/.test(ql);
@@ -628,11 +867,11 @@ if (isPolicyUsage) {
   if (genericProductAsk && raw.length <= 30) {
     const hasSize = !!extractSizeQuery(ql);
     const hasMoney = /\d+\s*(شيكل|₪)/.test(ql);
-
-    // وجود ماركة عبر القاموس يغني عن regex قديمة
     const hasBrandHint = !!brandInfo;
+    const hasSectionHint = !!extractSectionHint(ql);
+    const hasAudienceHint = !!extractAudienceHint(ql);
 
-    if (!hasSize && !hasMoney && !hasBrandHint) {
+    if (!hasSize && !hasMoney && !hasBrandHint && !(hasSectionHint && hasAudienceHint)) {
       return {
         ok: true,
         found: false,
@@ -648,7 +887,7 @@ if (isPolicyUsage) {
     return {
       ok: true,
       found: false,
-      reply: `${pickOpening()} المقاس ${askedSize} بدك **رجالي ولا نسائي**؟ وكمان بتحب السعر ضمن أي مدى تقريبًا؟`,
+      reply: `${pickOpening()} المقاس ${askedSize} بدك **رجالي ولا ستاتي ولا ولادي/بناتي**؟ وكمان بتحب السعر ضمن أي مدى تقريبًا؟`,
       tags: ["lead_product", "needs_clarification", "size_only"]
     };
   }
@@ -663,7 +902,14 @@ if (isPolicyUsage) {
     });
 
     if (res.type === "hit" && res.item) {
-      return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ['lead_product','product_hit','سلة_التسوق'] };
+      const KNOWLEDGE = getKnowledge();
+      const addon = buildSalesAddon(res.item, KNOWLEDGE);
+      return {
+        ok: true,
+        found: true,
+        reply: addon ? `${buildReplyFromItem(res.item)}\n\n${addon}` : buildReplyFromItem(res.item),
+        tags: ["lead_product", "product_hit", "سلة_التسوق"]
+      };
     }
 
     if (res.type === "clarify") {
@@ -675,17 +921,23 @@ if (isPolicyUsage) {
 
       const lines = [];
       lines.push(`${pickOpening()} لقيت أكثر من خيار، اختر رقم:`);
+
       opts.forEach((o, i) => {
-        const r = searchKnowledge(o.slug);
-        const it = r?.item;
+        const it = getItemBySlug(o.slug) || null;
         const price = it?.price ? `${it.price} شيكل` : "";
         const avail = it?.availability ? it.availability : "";
         const parts = [o.name, price, avail].filter(Boolean);
         lines.push(`${i + 1}) ${parts.join(" — ")}`);
       });
+
       lines.push("اكتب رقم الخيار فقط (مثال: 1).");
 
-      return { ok: true, found: false, reply: lines.join("\n"), tags: ["lead_product", "needs_clarification", "has_choices"] };
+      return {
+        ok: true,
+        found: false,
+        reply: lines.join("\n"),
+        tags: ["lead_product", "needs_clarification", "has_choices"]
+      };
     }
 
     // none
@@ -693,7 +945,7 @@ if (isPolicyUsage) {
       ok: true,
       found: false,
       reply: "تمام 😊 ما قدرت أحدد المنتج بالضبط من الرسالة. اكتب اسم المنتج أو الكود/الرابط وبساعدك فورًا.",
-      tags: ['lead_product','product_none']
+      tags: ["lead_product", "product_none"]
     };
   }
 
