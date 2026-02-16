@@ -2,7 +2,16 @@ import express from "express";
 import cors from "cors";
 
 import { CONFIG } from "./config.js";
-import { seenMessageIds, choiceMemory } from "./state/memoryStore.js";
+import {
+  seenMessageIds,
+  choiceMemory,
+  lastIncomingAt,
+  cartLeadAt,
+  canSendFollowupNow,
+  bumpFollowupSent,
+  FOLLOWUP_RULES
+} from "./state/memoryStore.js";
+
 import { loadKnowledge, getKnowledge } from "./knowledge/loader.js";
 import { handleQuery } from "./search/engine.js";
 import {
@@ -14,7 +23,6 @@ import {
 
 
 const app = express();
-
 // يمنع جدولة أكثر من متابعة سلة لنفس المحادثة
 const pendingCartFollowups = new Map(); // convId -> timeoutId
 
@@ -250,8 +258,6 @@ app.post("/chatwoot/webhook", async (req, res) => {
     if (!getKnowledge()) await loadKnowledge();
 
     // مهم: للذاكرة داخل engine لازم conversationId يكون String
-    // ✅ سجل آخر تفاعل للمستخدم (لـ inactivity gate)
-    lastIncomingAt.set(String(conversationId), Date.now());
 
     // ✅ سجل آخر تفاعل للمستخدم (لـ inactivity gate)
     lastIncomingAt.set(String(conversationId), Date.now());
