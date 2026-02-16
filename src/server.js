@@ -14,8 +14,56 @@ import {
 
 
 const app = express();
+
 // يمنع جدولة أكثر من متابعة سلة لنفس المحادثة
 const pendingCartFollowups = new Map(); // convId -> timeoutId
+
+// ===== Follow-up Session Memory (NO labels dependency) =====
+const lastIncomingAt = new Map(); // convId -> timestamp آخر رسالة واردة من المستخدم
+const cartLeadAt = new Map();      // convId -> timestamp آخر "Lead سلة" (بعد product hit/selection)
+const followupStats = new Map();   // convId -> { sentCount, lastSentAt }
+
+const FOLLOWUP_RULES = {
+  delayMs: 90 * 1000,          // 90 seconds (Chatwoot automation delay)
+  maxPerSession: 2,            // مرة/مرتين كحد أقصى
+  minGapMs: 15 * 60 * 1000,    // أقل فرق بين رسالتين متابعة (مثلاً 15 دقيقة)
+  leadTtlMs: 30 * 60 * 1000,   // صلاحية "lead" للسلة (30 دقيقة)
+  silentWindowMs: 90 * 1000    // لازم المستخدم يكون ساكت آخر 90 ثانية
+};
+
+function getFollowupStat_(convId) {
+  const cur = followupStats.get(convId) || { sentCount: 0, lastSentAt: 0 };
+  return cur;
+}
+
+function bumpFollowupSent_(convId) {
+  const cur = getFollowupStat_(convId);
+  cur.sentCount += 1;
+  cur.lastSentAt = Date.now();
+  followupStats.set(convId, cur);
+}
+
+function canSendFollowupNow_(convId) {
+  const now = Date.now();
+
+  // لازم يكون في lead سلة حديث
+  const leadAt = cartLeadAt.get(convId) || 0;
+  if (!leadAt || (now - leadAt) > FOLLOWUP_RULES.leadTtlMs) return { ok: false, why: "no_recent_cart_lead" };
+
+  // لازم المستخدم ما يكون تفاعل آخر 90 ثانية
+  const lastIn = lastIncomingAt.get(convId) || 0;
+  if (lastIn && (now - lastIn) < FOLLOWUP_RULES.silentWindowMs) return { ok: false, why: "user_recently_active" };
+
+  // حد أقصى مرات
+  const st = getFollowupStat_(convId);
+  if (st.sentCount >= FOLLOWUP_RULES.maxPerSession) return { ok: false, why: "max_per_session_reached" };
+
+  // مسافة أمان بين المتابعات
+  if (st.lastSentAt && (now - st.lastSentAt) < FOLLOWUP_RULES.minGapMs) return { ok: false, why: "min_gap_not_met" };
+
+  return { ok: true };
+}
+
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 app.use((req, res, next) => {
@@ -102,45 +150,37 @@ if (pendingCartFollowups.has(convId)) {
   return;
 }
 
-    // 2) تحقق من labels الحالية: إذا متابعة_السلة_تمت موجودة، لا تعيد
-    const conv = await chatwootGetConversation(convId);
-    const existingLabels = Array.isArray(conv?.labels) ? conv.labels : [];
-    if (existingLabels.includes("متابعة_السلة_تمت")) return;
-
-    // 3) سجل نقطة البداية: آخر رسالة الآن (لنعرف هل صار رد بعدين)
+    // 2) (بدون Labels) نأخذ snapshot للـ incoming كـ fallback فقط إذا ما عندنا lastIncomingAt
     const before = await chatwootGetMessages(convId, 1);
     const beforeMsgs = Array.isArray(before?.payload) ? before.payload : [];
     const beforeLatestIncoming = beforeMsgs.find(m => m.message_type === "incoming");
     const beforeIncomingId = beforeLatestIncoming?.id || null;
 
-    // 4) انتظر 90 ثانية
-    const delayMs = 90 * 1000;
-const timeoutId = setTimeout(async () => {
+    // 3) انتظر 90 ثانية (الأوتوميشن أصلاً عامل delay، بس نخليه كحماية لو endpoint انضرب فورًا)
+    const delayMs = FOLLOWUP_RULES.delayMs;
+
+    const timeoutId = setTimeout(async () => {
+
   try {
-    // (إعادة تحقق) لو الوسم موجود خلال الـ 90 ثانية: لا ترسل
-    const convLatest = await chatwootGetConversation(convId);
-    const labelsNow = Array.isArray(convLatest?.labels) ? convLatest.labels : [];
-    if (labelsNow.includes("متابعة_السلة_تمت")) {
-      console.log("✅ cart-followup canceled (already labeled) for", convId);
+    // ✅ Gate 1: Session-based throttle (NO labels)
+    const gate = canSendFollowupNow_(convId);
+    if (!gate.ok) {
+      console.log("🛑 cart-followup skipped for", convId, "| reason:", gate.why);
       return;
     }
 
-    // (اختياري قوي) لو ما عاد في سلة_التسوق: لا ترسل
-    if (!labelsNow.includes("سلة_التسوق")) {
-      console.log("🛑 cart-followup canceled (no cart label) for", convId);
-      return;
-    }
-
-    // افحص إذا المستخدم رد خلال الانتظار (آخر incoming تغيّر)
+    // ✅ Gate 2: Fallback تحقق إذا المستخدم رد (حتى لو lastIncomingAt مش متوفر)
     const after = await chatwootGetMessages(convId, 20);
     const afterMsgs = Array.isArray(after?.payload) ? after.payload : [];
     const latestIncoming = afterMsgs.find(m => m.message_type === "incoming");
     const latestIncomingId = latestIncoming?.id || null;
 
+    // إذا تغير incoming id خلال فترة الانتظار => المستخدم تفاعل => لا نرسل
     if (latestIncomingId && beforeIncomingId && latestIncomingId !== beforeIncomingId) {
-      console.log("🛑 cart-followup skipped (user replied) for", convId);
+      console.log("🛑 cart-followup skipped (user replied - fallback) for", convId);
       return;
     }
+
 
     const followup =
 `جاهز نكمّل طلبك؟ 🧾✨
@@ -155,13 +195,10 @@ const timeoutId = setTimeout(async () => {
 
     await chatwootCreateMessage(convId, followup);
 
-    // دمج الوسوم بدل الاستبدال
-    const conv2 = await chatwootGetConversation(convId);
-    const existing = Array.isArray(conv2?.labels) ? conv2.labels : [];
-    const merged = Array.from(new Set([...existing, "متابعة_السلة_تمت"]));
-    await chatwootSetLabels(convId, merged);
+    // ✅ سجل الإرسال للجلسة (بدون Labels)
+    bumpFollowupSent_(convId);
+    console.log("✅ cart-followup sent (session-throttled) for", convId);
 
-    console.log("✅ cart-followup sent & labeled for", convId);
   } catch (e) {
     console.error("cart-followup job failed:", e);
   } finally {
@@ -172,8 +209,6 @@ const timeoutId = setTimeout(async () => {
 
 pendingCartFollowups.set(convId, timeoutId);
 
-
-pendingCartFollowups.set(convId, timeoutId);
     
   } catch (e) {
     console.error(e);
@@ -215,10 +250,22 @@ app.post("/chatwoot/webhook", async (req, res) => {
     if (!getKnowledge()) await loadKnowledge();
 
     // مهم: للذاكرة داخل engine لازم conversationId يكون String
+    // ✅ سجل آخر تفاعل للمستخدم (لـ inactivity gate)
+    lastIncomingAt.set(String(conversationId), Date.now());
+
+    // ✅ سجل آخر تفاعل للمستخدم (لـ inactivity gate)
+    lastIncomingAt.set(String(conversationId), Date.now());
+
     const out = handleQuery(content, {
       conversationId: String(conversationId),
       choiceMemory
     });
+    // ✅ سجل Lead سلة عندما يكون في Product Hit / Selection
+    // (يعني صار في نية شراء فعلية)
+    const tagsArr = Array.isArray(out?.tags) ? out.tags : [];
+    if (tagsArr.includes("سلة_التسوق") || tagsArr.includes("product_hit") || tagsArr.includes("selection_made")) {
+      cartLeadAt.set(String(conversationId), Date.now());
+    }
 
     // أرسل الرد داخل نفس المحادثة
     const labels = mapToChatwootLabels(out.tags || []);
