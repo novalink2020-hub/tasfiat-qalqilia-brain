@@ -176,9 +176,6 @@ const timeoutId = setTimeout(async () => {
 }, delayMs);
 
 pendingCartFollowups.set(convId, timeoutId);
-
-
-pendingCartFollowups.set(convId, timeoutId);
     
   } catch (e) {
     console.error(e);
@@ -226,12 +223,33 @@ app.post("/chatwoot/webhook", async (req, res) => {
     });
 
     // أرسل الرد داخل نفس المحادثة
-    const labels = mapToChatwootLabels(out.tags || []);
-if (labels.length) {
-  await chatwootSetLabels(conversationId, labels);
-}
+    let labels = mapToChatwootLabels(out.tags || []);
 
-await chatwootCreateMessage(conversationId, out.reply);
+    // ✅ Throttle لوسم "سلة_التسوق": مرتين فقط لكل محادثة + فاصل 30 دقيقة
+    if (labels.includes("سلة_التسوق")) {
+      const convId = String(conversationId);
+      const now = Date.now();
+      const st = cartLabelThrottle.get(convId) || { count: 0, lastAt: 0 };
+
+      const tooSoon = st.lastAt && (now - st.lastAt) < CART_LABEL_MIN_GAP_MS;
+      const exceeded = st.count >= CART_LABEL_MAX;
+
+      if (exceeded || tooSoon) {
+        // امنع تمرير الوسم هذه المرة
+        labels = labels.filter(l => l !== "سلة_التسوق");
+      } else {
+        // اسمح + حدّث العداد
+        st.count += 1;
+        st.lastAt = now;
+        cartLabelThrottle.set(convId, st);
+      }
+    }
+
+    if (labels.length) {
+      await chatwootSetLabels(conversationId, labels);
+    }
+
+    await chatwootCreateMessage(conversationId, out.reply);
     
 
     return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
