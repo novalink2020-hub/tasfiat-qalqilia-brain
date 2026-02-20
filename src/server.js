@@ -16,6 +16,11 @@ import {
 const app = express();
 // يمنع جدولة أكثر من متابعة سلة لنفس المحادثة
 const pendingCartFollowups = new Map(); // convId -> timeoutId
+
+// ✅ Throttle لوسم "سلة_التسوق": مرتين فقط لكل محادثة + فاصل 30 دقيقة
+const cartLabelThrottle = new Map(); // convId -> { count: number, lastAt: number }
+const CART_LABEL_MAX = 2;
+const CART_LABEL_MIN_GAP_MS = 30 * 60 * 1000; // 30 minutes
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 app.use((req, res, next) => {
