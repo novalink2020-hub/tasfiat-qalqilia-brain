@@ -48,6 +48,9 @@ export function buildReplyFromItem(item) {
 
   const lines = [];
 
+  // 0) سطر تحفيزي
+  lines.push(`اختيار ممتاز 👌`);
+
   // 1) اسم المنتج
   lines.push(`${icon} **${name}**`);
 
@@ -71,6 +74,9 @@ export function buildReplyFromItem(item) {
 
   // 5) الرابط
   if (url) lines.push(`🔗 **[اضغط هنا لفتح صفحة المنتج](${url})**`);
+
+  // 6) متابعة الخيارات (من القائمة السابقة 1/2/3)
+  lines.push(`بدك تشوف باقي الخيارات؟ اكتب 2 أو 3 من القائمة.`);
 
   return lines.join("\n");
 }
