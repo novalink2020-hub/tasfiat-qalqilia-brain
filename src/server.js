@@ -16,6 +16,10 @@ import {
 const app = express();
 // يمنع جدولة أكثر من متابعة سلة لنفس المحادثة
 const pendingCartFollowups = new Map(); // convId -> timeoutId
+// ✅ Escalation auto-clear scheduler (60 minutes)
+// يمنع جدولة أكثر من إزالة تصعيد لنفس المحادثة
+const pendingEscalationAutoClear = new Map(); // convId -> timeoutId
+const ESCALATION_CLEAR_MS = 60 * 1000; // 60 minutes
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 app.use((req, res, next) => {
@@ -181,7 +185,61 @@ pendingCartFollowups.set(convId, timeoutId);
     try { res.json({ ok: false, error: "cart_followup_failed" }); } catch {}
   }
 });
+app.post("/chatwoot/escalation-auto-clear", async (req, res) => {
+  try {
+    console.log("🧯 escalation-auto-clear payload:", JSON.stringify(req.body || {}, null, 2));
 
+    // 1) رد فوري لChatwoot (ACK)
+    res.json({ ok: true, queued: true });
+
+    const body = req.body || {};
+    const conversationId =
+      body.conversation?.id ||
+      body.conversation_id ||
+      body.conversationId ||
+      body.id || // أحياناً automation يحط conversation id هنا
+      body.messages?.[0]?.conversation_id;
+
+    if (!conversationId) return;
+
+    const convId = String(conversationId);
+
+    // لو في مهمة إزالة مجدولة لنفس المحادثة: تجاهل
+    if (pendingEscalationAutoClear.has(convId)) {
+      console.log("🛑 escalation-auto-clear ignored (already scheduled) for", convId);
+      return;
+    }
+
+    // 2) جدولة بعد 60 دقيقة
+    const timeoutId = setTimeout(async () => {
+      try {
+        const conv = await chatwootGetConversation(convId);
+        const labelsNow = Array.isArray(conv?.labels) ? conv.labels : [];
+
+        if (!labelsNow.includes("تصعيد")) {
+          console.log("✅ escalation-auto-clear: no escalation label anymore for", convId);
+          return;
+        }
+
+        // حذف "تصعيد" مع الحفاظ على باقي الوسوم
+        const nextLabels = labelsNow.filter(l => l !== "تصعيد");
+        await chatwootSetLabels(convId, nextLabels);
+
+        console.log("✅ escalation-auto-clear: removed 'تصعيد' for", convId);
+      } catch (e) {
+        console.error("escalation-auto-clear job failed:", e);
+      } finally {
+        pendingEscalationAutoClear.delete(convId);
+      }
+    }, ESCALATION_CLEAR_MS);
+
+    pendingEscalationAutoClear.set(convId, timeoutId);
+    console.log("⏳ escalation-auto-clear scheduled for", convId, "in 60 minutes");
+  } catch (e) {
+    console.error(e);
+    try { res.json({ ok: false, error: "escalation_auto_clear_failed" }); } catch {}
+  }
+});
 
 // Webhook من Chatwoot: message_created
 app.post("/chatwoot/webhook", async (req, res) => {
