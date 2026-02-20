@@ -270,8 +270,7 @@ app.post("/chatwoot/webhook", async (req, res) => {
       if (seenMessageIds.size > 5000) seenMessageIds.clear();
     }
 
-    if (!getKnowledge()) await loadKnowledge();
-    // ✅ Human takeover: إذا المحادثة عليها تصعيد، لا ترد مؤتمتًا
+// ✅ Human takeover: إذا المحادثة عليها تصعيد، لا ترد مؤتمتًا
 try {
   const conv = await chatwootGetConversation(String(conversationId));
   const labelsNow = Array.isArray(conv?.labels) ? conv.labels : [];
@@ -281,6 +280,8 @@ try {
 } catch (e) {
   console.error("⚠️ chatwootGetConversation failed (takeover check):", e?.message || e);
 }
+
+if (!getKnowledge()) await loadKnowledge();
 
     // مهم: للذاكرة داخل engine لازم conversationId يكون String
     const out = handleQuery(content, {
