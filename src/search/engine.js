@@ -279,7 +279,13 @@ function pickOpening() {
   const arr = ["تمام 😊", "ولا يهمك 😊", "حاضر 👌", "يسعدني 😊"];
   return arr[Math.floor(Math.random() * arr.length)];
 }
-
+function sectionEmoji_(section) {
+  const s = String(section || "");
+  if (s.includes("أحذية")) return "👟";
+  if (s.includes("ملابس")) return "👕";
+  if (s.includes("عطور")) return "🧴";
+  return "🛍️";
+}
 /* =========================
    Shipping helpers
    ========================= */
@@ -898,9 +904,22 @@ export function handleQuery(q, ctx = {}) {
 
       opts.forEach((o, i) => {
         const it = getItemBySlug(o.slug) || null;
-        const price = it?.price ? `${it.price} شيكل` : "";
-        const avail = it?.availability ? it.availability : "";
-        const parts = [o.name, price, avail].filter(Boolean);
+
+        const icon = sectionEmoji_(it?.section);
+        const name = o.name || it?.name || "—";
+
+        const avail = it?.availability ? String(it.availability).trim() : "";
+        const price = (it?.price != null && String(it.price).trim() !== "")
+          ? `${it.price} شيكل`
+          : "";
+
+        // ترتيب متسق: الاسم → التوفر → السعر
+        const parts = [
+          `${icon} ${name}`,
+          avail ? `✅ ${avail}` : "",
+          price ? `💰 ${price}` : ""
+        ].filter(Boolean);
+
         lines.push(`${i + 1}) ${parts.join(" — ")}`);
       });
 
