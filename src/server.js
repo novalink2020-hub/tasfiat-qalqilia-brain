@@ -214,15 +214,26 @@ app.post("/chatwoot/webhook", async (req, res) => {
       if (seenMessageIds.size > 5000) seenMessageIds.clear();
     }
 
-    if (!getKnowledge()) await loadKnowledge();
+    try {
+  if (!getKnowledge()) await loadKnowledge();
+} catch (e) {
+  console.error("❌ loadKnowledge failed:", e?.message || e);
+  // حتى لو فشل تحميل المعرفة، لا نكسر webhook (بنخلي engine يرد fallback)
+}
 
+// ✅ رجّع 200 فورًا حتى Chatwoot ما يعلّق أو يعيد محاولات مزعجة
+res.json({ ok: true, queued: true });
+
+// نكمل async بدون ما نحبس webhook
+(async () => {
+  try {
     // مهم: للذاكرة داخل engine لازم conversationId يكون String
     const out = handleQuery(content, {
       conversationId: String(conversationId),
       choiceMemory
     });
 
-    // أرسل الرد داخل نفس المحادثة
+    // ===== Labels (Best-effort) =====
     let labels = mapToChatwootLabels(out.tags || []);
 
     // ✅ Throttle لوسم "سلة_التسوق": مرتين فقط لكل محادثة + فاصل 30 دقيقة
@@ -235,24 +246,37 @@ app.post("/chatwoot/webhook", async (req, res) => {
       const exceeded = st.count >= CART_LABEL_MAX;
 
       if (exceeded || tooSoon) {
-        // امنع تمرير الوسم هذه المرة
         labels = labels.filter(l => l !== "سلة_التسوق");
       } else {
-        // اسمح + حدّث العداد
         st.count += 1;
         st.lastAt = now;
         cartLabelThrottle.set(convId, st);
       }
     }
 
+    // ✅ لا تخلي فشل labels يمنع الرد
     if (labels.length) {
-      await chatwootSetLabels(conversationId, labels);
+      try {
+        // دمج بدل الاستبدال (يحمي وسومك القديمة)
+        const conv = await chatwootGetConversation(String(conversationId));
+        const existing = Array.isArray(conv?.labels) ? conv.labels : [];
+        const merged = Array.from(new Set([...existing, ...labels]));
+        await chatwootSetLabels(conversationId, merged);
+      } catch (e) {
+        console.error("⚠️ chatwootSetLabels failed:", e?.message || e);
+      }
     }
 
-    await chatwootCreateMessage(conversationId, out.reply);
-    
-
-    return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
+    // ===== Reply (Must-try) =====
+    try {
+      await chatwootCreateMessage(conversationId, out.reply);
+    } catch (e) {
+      console.error("❌ chatwootCreateMessage failed:", e?.message || e);
+    }
+  } catch (e) {
+    console.error("❌ webhook async job failed:", e);
+  }
+})();
   } catch (e) {
     console.error(e);
     return res.json({ ok: false, error: "webhook_failed" });
