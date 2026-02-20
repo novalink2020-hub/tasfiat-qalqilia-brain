@@ -213,6 +213,16 @@ app.post("/chatwoot/webhook", async (req, res) => {
     }
 
     if (!getKnowledge()) await loadKnowledge();
+    // ✅ Human takeover: إذا المحادثة عليها تصعيد، لا ترد مؤتمتًا
+try {
+  const conv = await chatwootGetConversation(String(conversationId));
+  const labelsNow = Array.isArray(conv?.labels) ? conv.labels : [];
+  if (labelsNow.includes("تصعيد")) {
+    return res.json({ ok: true, ignored: "human_takeover" });
+  }
+} catch (e) {
+  console.error("⚠️ chatwootGetConversation failed (takeover check):", e?.message || e);
+}
 
     // مهم: للذاكرة داخل engine لازم conversationId يكون String
     const out = handleQuery(content, {
