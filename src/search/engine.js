@@ -417,32 +417,10 @@ function pickAlternatives(KNOWLEDGE, item, limit = 2) {
   }));
 }
 
-function buildSalesAddon(item, KNOWLEDGE) {
-  if (!item) return "";
-
-  const lines = [];
-
-  // Discount nudge (simple + non-pushy)
-  const hasDiscount = !!item.has_discount;
-  const discountPercent = Number(item.discount_percent || 0);
-  if (hasDiscount && discountPercent > 0) {
-    lines.push(`✨ عليه خصم **${discountPercent}%** حالياً.`);
-  }
-
-  // Alternatives (same section/audience, prefer same brand)
-  const alts = pickAlternatives(KNOWLEDGE, item, 2);
-  if (alts.length) {
-    lines.push(`\nبدائل قريبة بنفس **${item.section || "القسم"}** و **${item.audience || "الفئة"}**:`);
-    alts.forEach((a, i) => {
-      const p = a.price ? `${a.price} شيكل` : "";
-      const av = a.availability ? a.availability : "";
-      const meta = [p, av].filter(Boolean).join(" — ");
-      lines.push(`${i + 1}) ${a.name}${meta ? ` — ${meta}` : ""}`);
-    });
-    lines.push("إذا بتحب، اكتب رقم البديل (1 أو 2) وببعثلك تفاصيله.");
-  }
-
-  return lines.join("\n").trim();
+function buildSalesAddon() {
+  // ✅ تم تعطيل الإضافات/البدائل نهائيًا لتقليل التشتيت
+  // التنسيق + الخصم صاروا داخل presenter.js فقط
+  return "";
 }
 
 function searchKnowledge(q, opts = {}) {
@@ -703,12 +681,10 @@ export function handleQuery(q, ctx = {}) {
     if (picked?.slug) {
       const pickedResult = searchKnowledge(picked.slug);
       if (pickedResult.type === "hit" && pickedResult.item) {
-        const KNOWLEDGE = getKnowledge();
-        const addon = buildSalesAddon(pickedResult.item, KNOWLEDGE);
         return {
           ok: true,
           found: true,
-          reply: addon ? `${buildReplyFromItem(pickedResult.item)}\n\n${addon}` : buildReplyFromItem(pickedResult.item),
+          reply: buildReplyFromItem(pickedResult.item),
           tags: ["lead_product", "selection_made", "price_inquiry", "سلة_التسوق"]
         };
       }
@@ -902,12 +878,10 @@ export function handleQuery(q, ctx = {}) {
     });
 
     if (res.type === "hit" && res.item) {
-      const KNOWLEDGE = getKnowledge();
-      const addon = buildSalesAddon(res.item, KNOWLEDGE);
       return {
         ok: true,
         found: true,
-        reply: addon ? `${buildReplyFromItem(res.item)}\n\n${addon}` : buildReplyFromItem(res.item),
+        reply: buildReplyFromItem(res.item),
         tags: ["lead_product", "product_hit", "سلة_التسوق"]
       };
     }
