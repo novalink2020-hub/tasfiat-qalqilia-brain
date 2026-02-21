@@ -75,7 +75,7 @@ app.get("/", (req, res) => {
     count: K?.count || K?.items?.length || 0
   });
 });
-app.get("/debug/knowledge-stats", (req, res) => {
+app.get("/knowledge-test", (req, res) => {
   const K = getKnowledge();
   const items = Array.isArray(K?.items) ? K.items : [];
 
