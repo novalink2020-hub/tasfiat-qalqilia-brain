@@ -18,10 +18,12 @@
     "كفر عقب": "jerusalem_suburbs",
     "كفرعقب": "jerusalem_suburbs",
     "كفر عقب - القدس": "jerusalem_suburbs",
-
+    
     "سرده": "west_bank",
     "سردة": "west_bank",
-
+    "الضفة الغربية": "west_bank",
+    "الضفه الغربيه": "west_bank",
+    
     "ديرستيا": "west_bank",
     "ديريستيا": "west_bank",
     "دير استيا": "west_bank",
@@ -29,6 +31,8 @@
     "عقبة جبر": "west_bank",
     "عقبه جبر": "west_bank",
 
+    "مناطق 48": "inside_1948",
+    "اسرائيل": "inside_1948",
     "واد الجوز": "jerusalem",
     "وادي الجوز": "jerusalem",
         "القدس": "jerusalem",
