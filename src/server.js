@@ -75,7 +75,37 @@ app.get("/", (req, res) => {
     count: K?.count || K?.items?.length || 0
   });
 });
+app.get("/debug/knowledge-stats", (req, res) => {
+  const K = getKnowledge();
+  const items = Array.isArray(K?.items) ? K.items : [];
 
+  const bySection = {};
+  const byAudience = {};
+  const byBrand = {};
+
+  for (const x of items) {
+    const s = String(x.section || "بدون_section").trim();
+    const a = String(x.audience || "بدون_audience").trim();
+    const b = String(x.brand_std || "بدون_brand").trim();
+
+    bySection[s] = (bySection[s] || 0) + 1;
+    byAudience[a] = (byAudience[a] || 0) + 1;
+    byBrand[b] = (byBrand[b] || 0) + 1;
+  }
+
+  // top 15 brands
+  const topBrands = Object.entries(byBrand)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15);
+
+  res.json({
+    ok: true,
+    count: items.length,
+    bySection,
+    byAudience,
+    topBrands
+  });
+});
 app.post("/search", async (req, res) => {
   try {
     if (!getKnowledge()) await loadKnowledge();
