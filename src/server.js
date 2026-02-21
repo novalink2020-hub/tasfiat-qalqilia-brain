@@ -177,7 +177,6 @@ const timeoutId = setTimeout(async () => {
 pendingCartFollowups.set(convId, timeoutId);
 
 
-pendingCartFollowups.set(convId, timeoutId);
     
   } catch (e) {
     console.error(e);
