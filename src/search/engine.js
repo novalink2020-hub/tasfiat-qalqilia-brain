@@ -712,7 +712,12 @@ if (brandKey && scored.length < 3 && effectiveSection && effectiveAudience) {
   const isBrandishQueryFinal = tokens.length === 1 && queryFold.length <= 6;
 
   // NEW thresholds: a bit more tolerant because keywords are rich and section/audience help
-  const minScore = isBrandFiltered ? 8 : isBrandishQueryFinal ? 12 : 24;
+  let minScore = isBrandFiltered ? 8 : isBrandishQueryFinal ? 12 : 24;
+
+// ✅ إذا فيه مقاس: خفّض العتبة لأن المقاس فلتر قوي حتى لو النص قصير
+if (askedSizeNumGlobal && Number.isFinite(askedSizeNumGlobal)) {
+  minScore = Math.min(minScore, 12);
+}
   if (top.score < minScore) return { type: "none", askedSize };
 
   if (second && second.score >= top.score - 6) {
@@ -734,6 +739,17 @@ export function handleQuery(q, ctx = {}) {
   const raw = normalizeText(q);
   const ql = raw.toLowerCase();
 
+  // ✅ تحيات/افتتاحيات: لا تدخل بحث منتجات
+  const t = ql.trim();
+  if (/^(مرحبا|مرحبًا|اهلا|اهلا وسهلا|اهلين|السلام عليكم|سلام|هاي|hello|hi)$/i.test(t)) {
+    return {
+      ok: true,
+      found: true,
+      reply: "أهلًا وسهلًا 😊 احكيلي شو بدك: **توصيل** ولا **فروع** ولا **بدك منتج** (حذاء/ملابس/عطور)؟",
+      tags: ["greeting"]
+    };
+  }
+
   const convId = ctx?.conversationId != null ? String(ctx.conversationId) : null;
   const session = convId ? getSession(convId) : null;
 
@@ -752,7 +768,21 @@ export function handleQuery(q, ctx = {}) {
   if (session && convId) {
     const patch = {};
 
-    if (liveSection) patch.section = liveSection;
+    if (liveSection) {
+  patch.section = liveSection;
+
+  // ✅ إذا تغيّر القسم عن اللي في الجلسة: امسح قيود قد تسبب انحراف
+  if (session?.section && session.section !== liveSection) {
+    // المقاس غالبًا للأحذية؛ إذا راح لعطور/ملابس امسحه
+    patch.size = null;
+
+    // لا تُبقي ماركة قديمة تحشر النتائج بقسم خاطئ (إلا إذا المستخدم ذكر ماركة الآن)
+    if (!brandInfo?.brandKey) {
+      patch.brand_key = null;
+      patch.brand_std = null;
+    }
+  }
+}
         if (liveAudience) patch.audience = liveAudience;
     // ✅ إذا الرسالة كانت audience فقط (زي: رجالي) خلّينا نلتقطها كـ audience حتى لو ما التقطها regex
     if (!liveAudience && isAudienceOnly_(ql)) {
@@ -837,7 +867,7 @@ export function handleQuery(q, ctx = {}) {
 
   // Intent بسيط
   const isShipping = /توصيل|شحن/.test(ql);
-  const isReturn = /إرجاع|ارجاع|ترجيع|استرجاع/.test(ql);
+  const isReturn = /إرجاع|ارجاع|ترجيع|استرجاع|ارجع|بدي ارجع/.test(ql);
   const isExchange = /تبديل|استبدال/.test(ql);
   const isPolicyPrivacy = /سياسة الخصوصية|الخصوصية|privacy/.test(ql);
   const isPolicyUsage = /سياسة الاستخدام|شروط الاستخدام|سياسة الاستعمال|terms|usage/.test(ql);
@@ -1023,8 +1053,15 @@ export function handleQuery(q, ctx = {}) {
 const effectiveText = buildEffectiveQueryFromSession_(raw, session, ql);
 
 // ✅ مرر سياق الجلسة للبحث
+// ✅ لا تستخدم ماركة الجلسة إذا المستخدم ذكر قسم صريح (عطور/ملابس/أحذية)
+const msgSection = extractSectionHint(ql); // من الرسالة الحالية فقط
+const effectiveBrandKey =
+  brandInfo?.brandKey ||
+  (!msgSection ? session?.brand_key : null) ||
+  null;
+
 const res = searchKnowledge(effectiveText, {
-  brandKey: brandInfo?.brandKey || session?.brand_key || null,
+  brandKey: effectiveBrandKey,
   brandExact: !!brandInfo?.exact,
   session: session || null
 });
