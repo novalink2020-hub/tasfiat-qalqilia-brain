@@ -471,9 +471,14 @@ function searchKnowledge(q, opts = {}) {
   const brandKey = opts?.brandKey ? String(opts.brandKey) : null;
   const brandExact = !!opts?.brandExact;
 
-  // NEW: section/audience hints
-  const sectionHint = extractSectionHint(queryLower);
-  const audienceHint = extractAudienceHint(queryLower);
+// NEW: section/audience hints
+const sectionHint = extractSectionHint(queryLower);
+const audienceHint = extractAudienceHint(queryLower);
+
+// ✅ Hard context: لو عندنا سياق من الجلسة أو من الرسالة، نخليه فلترة قوية
+const sess = opts?.session || null;
+const hardSection = sectionHint || sess?.section || null;
+const hardAudience = audienceHint || sess?.audience || null;
 
   // URL -> slug
   const m = String(q || "").match(/\/product\/([a-z0-9\-]+)/i);
@@ -531,6 +536,10 @@ function searchKnowledge(q, opts = {}) {
     const price = Number(x.price || 0);
     const hasDiscount = !!x.has_discount;
     const discountPercent = Number(x.discount_percent || 0);
+
+     // ✅ Hard Filter للقسم/الفئة عند وجود سياق (لتجنب انحراف النتائج)
+if (hardSection && String(x.section || "").trim() !== String(hardSection)) continue;
+if (hardAudience && String(x.audience || "").trim() !== String(hardAudience)) continue;
 
     const isPolicyLike =
       slug.startsWith("policy-") ||
@@ -657,7 +666,6 @@ if (!scored.length) return { type: "none", askedSize };
 
 // ✅ Brand fallback fill: إذا المستخدم طلب ماركة (brandKey) وما طلع 3 خيارات
 // نملأ الناقص بماركات أخرى بنفس section/audience (بدون ما نخلط لو ما في سياق)
-const sess = opts?.session || null;
 const effectiveSection = extractSectionHint(queryLower) || sess?.section || null;
 const effectiveAudience = extractAudienceHint(queryLower) || sess?.audience || null;
 
@@ -793,12 +801,13 @@ export function handleQuery(q, ctx = {}) {
       else if (/بناتي|بنات/.test(ql)) patch.audience = "بناتي";
     }
 
-    if (liveSize) {
-      const n = Number(liveSize);
-      if (Number.isFinite(n)) patch.size = n;
-      // إذا أعطى مقاس ولم يحدد قسم، نفترض أحذية كافتراضي (لأن مقاساتك رقمية)
-      if (!liveSection && !session.section) patch.section = "أحذية";
-    }
+if (liveSize) {
+  const n = Number(liveSize);
+  if (Number.isFinite(n)) patch.size = n;
+
+  // ✅ أي مقاس = غالبًا أحذية، ثبّت أحذية لو المستخدم ما حدد قسم (حتى لو الجلسة فاضية)
+  if (!liveSection) patch.section = session?.section || "أحذية";
+}
 
     if (brandInfo?.brandStd) patch.brand_std = brandInfo.brandStd;
     if (brandInfo?.brandKey) patch.brand_key = brandInfo.brandKey;
