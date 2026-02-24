@@ -424,8 +424,38 @@ function pickAlternatives(KNOWLEDGE, item, limit = 2) {
   }));
 }
 
+function isAudienceOnly_(rawLower) {
+  const t = String(rawLower || "").trim();
+  // كلمة/كلمتين بالكثير
+  if (t.split(/\s+/).length > 2) return false;
+  return /^(رجالي|رجال|شباب|ستاتي|نسائي|نساء|حريمي|ولادي|اولاد|اطفال|بناتي|بنات)$/.test(t);
+}
+
+function isDealsOnly_(rawLower) {
+  const t = String(rawLower || "").trim();
+  if (t.split(/\s+/).length > 3) return false;
+  return /(خصم|خصومات|تنزيلات|عروض|تخفيض|سيل|sale|off)/.test(t);
+}
+
+function buildEffectiveQueryFromSession_(raw, session, rawLower) {
+  // لو المستخدم كتب audience فقط، ومعنا مقاس/قسم سابق: نعيد بناء query غني
+  if (session?.size && (isAudienceOnly_(rawLower) || isDealsOnly_(rawLower))) {
+    const sec = session.section || "أحذية";
+    const aud = session.audience || (isAudienceOnly_(rawLower) ? raw : "");
+    const size = session.size ? `مقاس ${session.size}` : "";
+    const deals = isDealsOnly_(rawLower) ? "خصم" : "";
+    return `${sec} ${aud} ${size} ${deals}`.trim();
+  }
+  return raw;
+}
+
 function buildSalesAddon() {
   // ✅ تم تعطيل الإضافات/البدائل نهائيًا لتقليل التشتيت
+  // التنسيق + الخصم صاروا داخل presenter.js فقط
+  return "";
+}
+
+// ✅ تم تعطيل الإضافات/البدائل نهائيًا لتقليل التشتيت
   // التنسيق + الخصم صاروا داخل presenter.js فقط
   return "";
 }
@@ -440,7 +470,8 @@ function searchKnowledge(q, opts = {}) {
 
   const rawSlug = String(q || "").trim().toLowerCase();
   const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(rawSlug);
-  const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
+    const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
+  const askedSizeNumGlobal = askedSize != null ? Number(askedSize) : null; // ✅ ثابت خارج اللوب
 
   const brandKey = opts?.brandKey ? String(opts.brandKey) : null;
   const brandExact = !!opts?.brandExact;
@@ -515,7 +546,7 @@ function searchKnowledge(q, opts = {}) {
 
 // ✅ Size-first: exact أولاً، ثم سماح ±1 لتعبئة النتائج
 let sizeDistance = null; // 0 exact, 1 near, null none
-const askedSizeNum = askedSize != null ? Number(askedSize) : null;
+const askedSizeNum = askedSizeNumGlobal;
 
 if (askedSizeNum && !isPolicyLike) {
   const nums = (sizes || "")
@@ -727,7 +758,15 @@ export function handleQuery(q, ctx = {}) {
     const patch = {};
 
     if (liveSection) patch.section = liveSection;
-    if (liveAudience) patch.audience = liveAudience;
+        if (liveAudience) patch.audience = liveAudience;
+    // ✅ إذا الرسالة كانت audience فقط (زي: رجالي) خلّينا نلتقطها كـ audience حتى لو ما التقطها regex
+    if (!liveAudience && isAudienceOnly_(ql)) {
+      // طابقها على قيم audience القياسية
+      if (/رجالي|رجال|شباب/.test(ql)) patch.audience = "رجالي";
+      else if (/ستاتي|نسائي|نساء|حريمي/.test(ql)) patch.audience = "ستاتي";
+      else if (/ولادي|اولاد|اطفال/.test(ql)) patch.audience = "ولادي";
+      else if (/بناتي|بنات/.test(ql)) patch.audience = "بناتي";
+    }
 
     if (liveSize) {
       const n = Number(liveSize);
@@ -960,9 +999,19 @@ export function handleQuery(q, ctx = {}) {
     }
   }
 
-  // المقاس فقط
+  // المقاس فقط (✅ ثبّت سياق الأحذية داخل الجلسة)
   const askedSize = extractSizeQuery(ql);
   if (askedSize && isOnlySizeQuery(raw)) {
+    const n = Number(askedSize);
+    if (convId && Number.isFinite(n)) {
+      updateSession(convId, {
+        size: n,
+        section: session?.section || "أحذية", // ✅ افتراضي أحذية
+        // علّم إننا بانتظار تحديد الفئة
+        flags: { ...(session?.flags || {}), pending_pick: "audience_for_size" }
+      });
+    }
+
     return {
       ok: true,
       found: false,
@@ -975,9 +1024,10 @@ export function handleQuery(q, ctx = {}) {
   // Product Router (قبل fallback)
   // =========================
   if (isProductIntent(raw) || brandInfo) {
-const effectiveText = raw;
+// ✅ لو الرسالة قصيرة (رجالي/خصومات) ومعنا سياق سابق: نبني query غني من الجلسة
+const effectiveText = buildEffectiveQueryFromSession_(raw, session, ql);
 
-// ✅ مرر سياق الجلسة للبحث (section/audience/size/brand) حتى تبقى المحادثة متماسكة
+// ✅ مرر سياق الجلسة للبحث
 const res = searchKnowledge(effectiveText, {
   brandKey: brandInfo?.brandKey || session?.brand_key || null,
   brandExact: !!brandInfo?.exact,
