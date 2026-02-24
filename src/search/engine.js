@@ -9,6 +9,7 @@ import { buildReplyFromItem } from "../replies/presenter.js";
 import fs from "fs";
 import path from "path";
 import { normalizeForMatch, tokenize } from "../text/normalize.js";
+import { getSession, updateSession } from "../state/sessionStore.js";
 
 /* =========================
    Basic text utils
@@ -261,7 +262,7 @@ function isProductIntent(rawText) {
   if (detectBrandInfo(rawText) || detectBrandFromKnowledgeTags(rawText)) return true;
 
   if (
-    /(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|شنطه|شنطة|عطر|برفان|كرة قدم|مدارس|جري|مشي|تدريب|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(
+    /(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تي\s?شيرت|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|عطر|برفان|كرة قدم|مدارس|جري|مشي|تدريب|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(
       q
     )
   ) {
@@ -423,6 +424,31 @@ function pickAlternatives(KNOWLEDGE, item, limit = 2) {
   }));
 }
 
+function isAudienceOnly_(rawLower) {
+  const t = String(rawLower || "").trim();
+  // كلمة/كلمتين بالكثير
+  if (t.split(/\s+/).length > 2) return false;
+  return /^(رجالي|رجال|شباب|ستاتي|نسائي|نساء|حريمي|ولادي|اولاد|اطفال|بناتي|بنات)$/.test(t);
+}
+
+function isDealsOnly_(rawLower) {
+  const t = String(rawLower || "").trim();
+  if (t.split(/\s+/).length > 3) return false;
+  return /(خصم|خصومات|تنزيلات|عروض|تخفيض|سيل|sale|off)/.test(t);
+}
+
+function buildEffectiveQueryFromSession_(raw, session, rawLower) {
+  // لو المستخدم كتب audience فقط، ومعنا مقاس/قسم سابق: نعيد بناء query غني
+  if (session?.size && (isAudienceOnly_(rawLower) || isDealsOnly_(rawLower))) {
+    const sec = session.section || "أحذية";
+    const aud = session.audience || (isAudienceOnly_(rawLower) ? raw : "");
+    const size = session.size ? `مقاس ${session.size}` : "";
+    const deals = isDealsOnly_(rawLower) ? "خصم" : "";
+    return `${sec} ${aud} ${size} ${deals}`.trim();
+  }
+  return raw;
+}
+
 function buildSalesAddon() {
   // ✅ تم تعطيل الإضافات/البدائل نهائيًا لتقليل التشتيت
   // التنسيق + الخصم صاروا داخل presenter.js فقط
@@ -439,7 +465,8 @@ function searchKnowledge(q, opts = {}) {
 
   const rawSlug = String(q || "").trim().toLowerCase();
   const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(rawSlug);
-  const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
+    const askedSize = looksLikeSlug ? null : extractSizeQuery(queryLower);
+  const askedSizeNumGlobal = askedSize != null ? Number(askedSize) : null; // ✅ ثابت خارج اللوب
 
   const brandKey = opts?.brandKey ? String(opts.brandKey) : null;
   const brandExact = !!opts?.brandExact;
@@ -512,16 +539,37 @@ function searchKnowledge(q, opts = {}) {
       tagsLow.includes("سياسات") ||
       tagsLow.includes("فروع");
 
-    if (askedSize && !isPolicyLike) {
-      const list = sizes.split(",").map((s) => s.trim());
-      if (!list.includes(String(askedSize))) continue;
-    }
+// ✅ Size-first: exact أولاً، ثم سماح ±1 لتعبئة النتائج
+let sizeDistance = null; // 0 exact, 1 near, null none
+const askedSizeNum = askedSizeNumGlobal;
+
+if (askedSizeNum && !isPolicyLike) {
+  const nums = (sizes || "")
+    .split(",")
+    .map(s => Number(String(s).trim()))
+    .filter(n => Number.isFinite(n));
+
+  if (!nums.length) continue;
+
+  // exact؟
+  if (nums.includes(askedSizeNum)) {
+    sizeDistance = 0;
+  } else {
+    // هامش نمرة واحدة ±1
+    const minDiff = Math.min(...nums.map(n => Math.abs(n - askedSizeNum)));
+    if (minDiff <= 1) sizeDistance = 1;
+    else continue;
+  }
+}
 
     const moneyQ = extractMoneyQuery(queryLower);
     const genderHint = extractGenderHint(queryLower);
     const wantsDiscount = extractDiscountHint(queryLower);
 
     let score = 0;
+     // Boost للمقاس: exact أعلى من near
+if (sizeDistance === 0) score += 28;
+if (sizeDistance === 1) score += 10;
 
     // Brand base score (after filtering)
     if (brandKey && itemBrandKey === brandKey) score += 14;
@@ -604,8 +652,49 @@ function searchKnowledge(q, opts = {}) {
     if (score > 0) scored.push({ item: x, score });
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  if (!scored.length) return { type: "none", askedSize };
+scored.sort((a, b) => b.score - a.score);
+if (!scored.length) return { type: "none", askedSize };
+
+// ✅ Brand fallback fill: إذا المستخدم طلب ماركة (brandKey) وما طلع 3 خيارات
+// نملأ الناقص بماركات أخرى بنفس section/audience (بدون ما نخلط لو ما في سياق)
+const sess = opts?.session || null;
+const effectiveSection = extractSectionHint(queryLower) || sess?.section || null;
+const effectiveAudience = extractAudienceHint(queryLower) || sess?.audience || null;
+
+if (brandKey && scored.length < 3 && effectiveSection && effectiveAudience) {
+  const need = 3 - scored.length;
+
+  const extra = [];
+  for (const x of KNOWLEDGE.items) {
+    if (!isUsableProductItem(x)) continue;
+
+    // نفس القسم/الفئة فقط
+    if (String(x.section || "").trim() !== String(effectiveSection)) continue;
+    if (String(x.audience || "").trim() !== String(effectiveAudience)) continue;
+
+    // استبعد نفس الماركة
+    const bKey2 = normKey(String(x.brand_std || ""));
+    if (bKey2 && bKey2 === brandKey) continue;
+
+    // احترم المقاس (exact/±1) إذا موجود
+    if (askedSizeNum) {
+      const nums = String(x.sizes || "")
+        .split(",")
+        .map(s => Number(String(s).trim()))
+        .filter(n => Number.isFinite(n));
+      if (!nums.length) continue;
+      const minDiff = Math.min(...nums.map(n => Math.abs(n - askedSizeNum)));
+      if (minDiff > 1) continue;
+    }
+
+    // سكور بسيط: نعطيه نقطة دخول، لكن أقل من سكورات الماركة المطلوبة
+    // (عشان يظل خيار الماركة أول)
+    extra.push({ item: x, score: 5, _brandFallback: true });
+    if (extra.length >= need) break;
+  }
+
+  if (extra.length) scored.push(...extra);
+}
 
   // Brand only (exact) => show top 3 always
   if (brandKey && brandExact) {
@@ -645,10 +734,52 @@ export function handleQuery(q, ctx = {}) {
   const raw = normalizeText(q);
   const ql = raw.toLowerCase();
 
-  // 1) Brand detection: dictionary first, then knowledge.brand_tags fallback
-  const brandInfoPrimary = detectBrandInfo(raw); // {brandStd, brandKey, exact} أو null
+  const convId = ctx?.conversationId != null ? String(ctx.conversationId) : null;
+  const session = convId ? getSession(convId) : null;
+
+  // لقط إشارات من الرسالة الحالية
+  const liveSize = extractSizeQuery(ql);
+  const liveSection = extractSectionHint(ql);
+  const liveAudience = extractAudienceHint(ql);
+  const liveWantsDiscount = extractDiscountHint(ql);
+
+  // Brand detection (نفس الموجود عندك)
+  const brandInfoPrimary = detectBrandInfo(raw);
   const brandInfoFallback = brandInfoPrimary ? null : detectBrandFromKnowledgeTags(raw);
   const brandInfo = brandInfoPrimary || brandInfoFallback;
+
+  // ✅ تحديث الجلسة (soft memory)
+  if (session && convId) {
+    const patch = {};
+
+    if (liveSection) patch.section = liveSection;
+        if (liveAudience) patch.audience = liveAudience;
+    // ✅ إذا الرسالة كانت audience فقط (زي: رجالي) خلّينا نلتقطها كـ audience حتى لو ما التقطها regex
+    if (!liveAudience && isAudienceOnly_(ql)) {
+      // طابقها على قيم audience القياسية
+      if (/رجالي|رجال|شباب/.test(ql)) patch.audience = "رجالي";
+      else if (/ستاتي|نسائي|نساء|حريمي/.test(ql)) patch.audience = "ستاتي";
+      else if (/ولادي|اولاد|اطفال/.test(ql)) patch.audience = "ولادي";
+      else if (/بناتي|بنات/.test(ql)) patch.audience = "بناتي";
+    }
+
+    if (liveSize) {
+      const n = Number(liveSize);
+      if (Number.isFinite(n)) patch.size = n;
+      // إذا أعطى مقاس ولم يحدد قسم، نفترض أحذية كافتراضي (لأن مقاساتك رقمية)
+      if (!liveSection && !session.section) patch.section = "أحذية";
+    }
+
+    if (brandInfo?.brandStd) patch.brand_std = brandInfo.brandStd;
+    if (brandInfo?.brandKey) patch.brand_key = brandInfo.brandKey;
+
+    if (liveWantsDiscount) patch.wants_discount = true;
+
+    patch.last_user_text = raw;
+
+    updateSession(convId, patch);
+  }
+
 
   // شكر/إغلاق
   if (/^(شكرا|شكرًا|يسلمو|يسلموا|مشكور|تسلم)\s*$/i.test(raw)) {
@@ -863,9 +994,19 @@ export function handleQuery(q, ctx = {}) {
     }
   }
 
-  // المقاس فقط
+  // المقاس فقط (✅ ثبّت سياق الأحذية داخل الجلسة)
   const askedSize = extractSizeQuery(ql);
   if (askedSize && isOnlySizeQuery(raw)) {
+    const n = Number(askedSize);
+    if (convId && Number.isFinite(n)) {
+      updateSession(convId, {
+        size: n,
+        section: session?.section || "أحذية", // ✅ افتراضي أحذية
+        // علّم إننا بانتظار تحديد الفئة
+        flags: { ...(session?.flags || {}), pending_pick: "audience_for_size" }
+      });
+    }
+
     return {
       ok: true,
       found: false,
@@ -878,10 +1019,15 @@ export function handleQuery(q, ctx = {}) {
   // Product Router (قبل fallback)
   // =========================
   if (isProductIntent(raw) || brandInfo) {
-    const res = searchKnowledge(raw, {
-      brandKey: brandInfo?.brandKey || null,
-      brandExact: !!brandInfo?.exact
-    });
+// ✅ لو الرسالة قصيرة (رجالي/خصومات) ومعنا سياق سابق: نبني query غني من الجلسة
+const effectiveText = buildEffectiveQueryFromSession_(raw, session, ql);
+
+// ✅ مرر سياق الجلسة للبحث
+const res = searchKnowledge(effectiveText, {
+  brandKey: brandInfo?.brandKey || session?.brand_key || null,
+  brandExact: !!brandInfo?.exact,
+  session: session || null
+});
 
     if (res.type === "hit" && res.item) {
       return {
