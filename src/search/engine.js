@@ -1046,7 +1046,7 @@ if (liveSize) {
     if (convId && Number.isFinite(n)) {
       updateSession(convId, {
         size: n,
-        section: "أحذية", // ✅ المقاس-only = أحذية دائمًا (لا نرث "عطور" من سياق سابق)أحذية", // ✅ افتراضي أحذية
+        section: "أحذية", // ✅ المقاس-only = أحذية دائمًا (لا نرث "عطور" من سياق سابق)
         // علّم إننا بانتظار تحديد الفئة
         flags: { ...(session?.flags || {}), pending_pick: "audience_for_size" }
       });
