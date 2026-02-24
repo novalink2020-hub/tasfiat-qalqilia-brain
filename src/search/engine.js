@@ -9,6 +9,7 @@ import { buildReplyFromItem } from "../replies/presenter.js";
 import fs from "fs";
 import path from "path";
 import { normalizeForMatch, tokenize } from "../text/normalize.js";
+import { getSession, updateSession } from "../state/sessionStore.js";
 
 /* =========================
    Basic text utils
@@ -261,7 +262,7 @@ function isProductIntent(rawText) {
   if (detectBrandInfo(rawText) || detectBrandFromKnowledgeTags(rawText)) return true;
 
   if (
-    /(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|شنطه|شنطة|عطر|برفان|كرة قدم|مدارس|جري|مشي|تدريب|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(
+    /(حذاء|جزمه|جزمة|كوتشي|بوط|صندل|شبشب|طقم|تي\s?شيرت|تيشيرت|بنطال|جاكيت|بلوزه|بلوزة|عطر|برفان|كرة قدم|مدارس|جري|مشي|تدريب|مقاس|نمره|نمرة|قياس|ولادي|بناتي|رجالي|نسائي|ستاتي)/.test(
       q
     )
   ) {
@@ -512,16 +513,37 @@ function searchKnowledge(q, opts = {}) {
       tagsLow.includes("سياسات") ||
       tagsLow.includes("فروع");
 
-    if (askedSize && !isPolicyLike) {
-      const list = sizes.split(",").map((s) => s.trim());
-      if (!list.includes(String(askedSize))) continue;
-    }
+// ✅ Size-first: exact أولاً، ثم سماح ±1 لتعبئة النتائج
+let sizeDistance = null; // 0 exact, 1 near, null none
+const askedSizeNum = askedSize != null ? Number(askedSize) : null;
+
+if (askedSizeNum && !isPolicyLike) {
+  const nums = (sizes || "")
+    .split(",")
+    .map(s => Number(String(s).trim()))
+    .filter(n => Number.isFinite(n));
+
+  if (!nums.length) continue;
+
+  // exact؟
+  if (nums.includes(askedSizeNum)) {
+    sizeDistance = 0;
+  } else {
+    // هامش نمرة واحدة ±1
+    const minDiff = Math.min(...nums.map(n => Math.abs(n - askedSizeNum)));
+    if (minDiff <= 1) sizeDistance = 1;
+    else continue;
+  }
+}
 
     const moneyQ = extractMoneyQuery(queryLower);
     const genderHint = extractGenderHint(queryLower);
     const wantsDiscount = extractDiscountHint(queryLower);
 
     let score = 0;
+     // Boost للمقاس: exact أعلى من near
+if (sizeDistance === 0) score += 28;
+if (sizeDistance === 1) score += 10;
 
     // Brand base score (after filtering)
     if (brandKey && itemBrandKey === brandKey) score += 14;
@@ -645,10 +667,44 @@ export function handleQuery(q, ctx = {}) {
   const raw = normalizeText(q);
   const ql = raw.toLowerCase();
 
-  // 1) Brand detection: dictionary first, then knowledge.brand_tags fallback
-  const brandInfoPrimary = detectBrandInfo(raw); // {brandStd, brandKey, exact} أو null
+  const convId = ctx?.conversationId != null ? String(ctx.conversationId) : null;
+  const session = convId ? getSession(convId) : null;
+
+  // لقط إشارات من الرسالة الحالية
+  const liveSize = extractSizeQuery(ql);
+  const liveSection = extractSectionHint(ql);
+  const liveAudience = extractAudienceHint(ql);
+  const liveWantsDiscount = extractDiscountHint(ql);
+
+  // Brand detection (نفس الموجود عندك)
+  const brandInfoPrimary = detectBrandInfo(raw);
   const brandInfoFallback = brandInfoPrimary ? null : detectBrandFromKnowledgeTags(raw);
   const brandInfo = brandInfoPrimary || brandInfoFallback;
+
+  // ✅ تحديث الجلسة (soft memory)
+  if (session && convId) {
+    const patch = {};
+
+    if (liveSection) patch.section = liveSection;
+    if (liveAudience) patch.audience = liveAudience;
+
+    if (liveSize) {
+      const n = Number(liveSize);
+      if (Number.isFinite(n)) patch.size = n;
+      // إذا أعطى مقاس ولم يحدد قسم، نفترض أحذية كافتراضي (لأن مقاساتك رقمية)
+      if (!liveSection && !session.section) patch.section = "أحذية";
+    }
+
+    if (brandInfo?.brandStd) patch.brand_std = brandInfo.brandStd;
+    if (brandInfo?.brandKey) patch.brand_key = brandInfo.brandKey;
+
+    if (liveWantsDiscount) patch.wants_discount = true;
+
+    patch.last_user_text = raw;
+
+    updateSession(convId, patch);
+  }
+
 
   // شكر/إغلاق
   if (/^(شكرا|شكرًا|يسلمو|يسلموا|مشكور|تسلم)\s*$/i.test(raw)) {
@@ -878,10 +934,14 @@ export function handleQuery(q, ctx = {}) {
   // Product Router (قبل fallback)
   // =========================
   if (isProductIntent(raw) || brandInfo) {
-    const res = searchKnowledge(raw, {
-      brandKey: brandInfo?.brandKey || null,
-      brandExact: !!brandInfo?.exact
-    });
+const effectiveText = raw;
+
+// ✅ مرر سياق الجلسة للبحث (section/audience/size/brand) حتى تبقى المحادثة متماسكة
+const res = searchKnowledge(effectiveText, {
+  brandKey: brandInfo?.brandKey || session?.brand_key || null,
+  brandExact: !!brandInfo?.exact,
+  session: session || null
+});
 
     if (res.type === "hit" && res.item) {
       return {
