@@ -1070,9 +1070,18 @@ const effectiveText = buildEffectiveQueryFromSession_(raw, session, ql);
 // ✅ مرر سياق الجلسة للبحث
 // ✅ لا تستخدم ماركة الجلسة إذا المستخدم ذكر قسم صريح (عطور/ملابس/أحذية)
 const msgSection = extractSectionHint(ql); // من الرسالة الحالية فقط
+const msgHasSize = !!extractSizeQuery(ql);
+const msgAudienceOnly = isAudienceOnly_(ql);
+const msgDealsOnly = isDealsOnly_(ql);
+
+// ✅ لا تورّث الماركة إلا إذا المستخدم ذكرها صراحة
+// ✅ ولا تورّثها إذا الرسالة “مقاس/رجالي/خصومات” لأنها قيود نية مش طلب ماركة
+const allowSessionBrand =
+  !msgSection && !msgHasSize && !msgAudienceOnly && !msgDealsOnly;
+
 const effectiveBrandKey =
   brandInfo?.brandKey ||
-  (!msgSection ? session?.brand_key : null) ||
+  (allowSessionBrand ? session?.brand_key : null) ||
   null;
 
 const res = searchKnowledge(effectiveText, {
@@ -1080,7 +1089,6 @@ const res = searchKnowledge(effectiveText, {
   brandExact: !!brandInfo?.exact,
   session: session || null
 });
-
     if (res.type === "hit" && res.item) {
       return {
         ok: true,
