@@ -101,14 +101,6 @@ function isOnlySizeQuery(raw) {
   return /^\d{2}(\.\d)?$/.test(s);
 }
 
-// ✅ "مقاس 40" / "نمرة 40" / "نمره 40" = تعاملها كـ size-only
-function isSizePhraseOnly(rawLower) {
-  const t = String(rawLower || "").trim();
-  // كلمات قليلة + رقم مقاس
-  if (t.split(/\s+/).length > 3) return false;
-  return /^(?:مقاس|نمرة|نمره)\s*\d{2}(?:\.\d)?$/.test(t);
-}
-
 /* =========================
    Brand dictionary (brand_std + aliases)
    ========================= */
@@ -1048,24 +1040,17 @@ if (liveSize) {
   }
 
   // المقاس فقط (✅ ثبّت سياق الأحذية داخل الجلسة)
-const askedSize = extractSizeQuery(ql);
-if (askedSize && (isOnlySizeQuery(raw) || isSizePhraseOnly(ql))) {
-  const n = Number(askedSize);
-  if (convId && Number.isFinite(n)) {
-    updateSession(convId, {
-      size: n,
-      section: "أحذية", // ✅ مقاس = أحذية بشكل حاسم
-      flags: { ...(session?.flags || {}), pending_pick: "audience_for_size" }
-    });
-  }
-
-  return {
-    ok: true,
-    found: false,
-    reply: `${pickOpening()} المقاس ${askedSize} بدك **رجالي ولا ستاتي ولا ولادي/بناتي**؟ وكمان بتحب السعر ضمن أي مدى تقريبًا؟`,
-    tags: ["lead_product", "needs_clarification", "size_only"]
-  };
-}
+  const askedSize = extractSizeQuery(ql);
+  if (askedSize && isOnlySizeQuery(raw)) {
+    const n = Number(askedSize);
+    if (convId && Number.isFinite(n)) {
+      updateSession(convId, {
+        size: n,
+        section: "أحذية", // ✅ المقاس-only = أحذية دائمًا (لا نرث "عطور" من سياق سابق)أحذية", // ✅ افتراضي أحذية
+        // علّم إننا بانتظار تحديد الفئة
+        flags: { ...(session?.flags || {}), pending_pick: "audience_for_size" }
+      });
+    }
 
     return {
       ok: true,
