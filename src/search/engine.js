@@ -626,8 +626,49 @@ if (sizeDistance === 1) score += 10;
     if (score > 0) scored.push({ item: x, score });
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  if (!scored.length) return { type: "none", askedSize };
+scored.sort((a, b) => b.score - a.score);
+if (!scored.length) return { type: "none", askedSize };
+
+// ✅ Brand fallback fill: إذا المستخدم طلب ماركة (brandKey) وما طلع 3 خيارات
+// نملأ الناقص بماركات أخرى بنفس section/audience (بدون ما نخلط لو ما في سياق)
+const sess = opts?.session || null;
+const effectiveSection = extractSectionHint(queryLower) || sess?.section || null;
+const effectiveAudience = extractAudienceHint(queryLower) || sess?.audience || null;
+
+if (brandKey && scored.length < 3 && effectiveSection && effectiveAudience) {
+  const need = 3 - scored.length;
+
+  const extra = [];
+  for (const x of KNOWLEDGE.items) {
+    if (!isUsableProductItem(x)) continue;
+
+    // نفس القسم/الفئة فقط
+    if (String(x.section || "").trim() !== String(effectiveSection)) continue;
+    if (String(x.audience || "").trim() !== String(effectiveAudience)) continue;
+
+    // استبعد نفس الماركة
+    const bKey2 = normKey(String(x.brand_std || ""));
+    if (bKey2 && bKey2 === brandKey) continue;
+
+    // احترم المقاس (exact/±1) إذا موجود
+    if (askedSizeNum) {
+      const nums = String(x.sizes || "")
+        .split(",")
+        .map(s => Number(String(s).trim()))
+        .filter(n => Number.isFinite(n));
+      if (!nums.length) continue;
+      const minDiff = Math.min(...nums.map(n => Math.abs(n - askedSizeNum)));
+      if (minDiff > 1) continue;
+    }
+
+    // سكور بسيط: نعطيه نقطة دخول، لكن أقل من سكورات الماركة المطلوبة
+    // (عشان يظل خيار الماركة أول)
+    extra.push({ item: x, score: 5, _brandFallback: true });
+    if (extra.length >= need) break;
+  }
+
+  if (extra.length) scored.push(...extra);
+}
 
   // Brand only (exact) => show top 3 always
   if (brandKey && brandExact) {
