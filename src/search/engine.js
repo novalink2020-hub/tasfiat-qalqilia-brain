@@ -537,9 +537,14 @@ const hardAudience = audienceHint || sess?.audience || null;
     const hasDiscount = !!x.has_discount;
     const discountPercent = Number(x.discount_percent || 0);
 
-     // ✅ Hard Filter للقسم/الفئة عند وجود سياق (لتجنب انحراف النتائج)
-if (hardSection && String(x.section || "").trim() !== String(hardSection)) continue;
-if (hardAudience && String(x.audience || "").trim() !== String(hardAudience)) continue;
+// ✅ Hard Filter مطبّع (تجنب اختلاف: أحذية/احذية، مسافات، إلخ)
+const xSec = normalizeKeyForScoring(String(x.section || ""));
+const xAud = normalizeKeyForScoring(String(x.audience || ""));
+const hSec = hardSection ? normalizeKeyForScoring(String(hardSection)) : null;
+const hAud = hardAudience ? normalizeKeyForScoring(String(hardAudience)) : null;
+
+if (hSec && xSec !== hSec) continue;
+if (hAud && xAud !== hAud) continue;
 
     const isPolicyLike =
       slug.startsWith("policy-") ||
