@@ -455,11 +455,6 @@ function buildSalesAddon() {
   return "";
 }
 
-// ✅ تم تعطيل الإضافات/البدائل نهائيًا لتقليل التشتيت
-  // التنسيق + الخصم صاروا داخل presenter.js فقط
-  return "";
-}
-
 function searchKnowledge(q, opts = {}) {
   const KNOWLEDGE = getKnowledge();
   if (!KNOWLEDGE?.items?.length) return { type: "none", askedSize: null };
