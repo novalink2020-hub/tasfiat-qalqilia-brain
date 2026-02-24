@@ -810,8 +810,9 @@ if (liveSize) {
   const n = Number(liveSize);
   if (Number.isFinite(n)) patch.size = n;
 
-  // ✅ أي مقاس = غالبًا أحذية، ثبّت أحذية لو المستخدم ما حدد قسم (حتى لو الجلسة فاضية)
-  if (!liveSection) patch.section = session?.section || "أحذية";
+  // ✅ المقاس غالبًا أحذية: إذا المستخدم ما ذكر قسم صراحة، "نقلب" القسم لأحذية
+  // (حتى لو كان قبلها عطور/ملابس في نفس الجلسة)
+  if (!liveSection) patch.section = "أحذية";
 }
 
     if (brandInfo?.brandStd) patch.brand_std = brandInfo.brandStd;
