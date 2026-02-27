@@ -815,9 +815,13 @@ if (liveSize) {
   const n = Number(liveSize);
   if (Number.isFinite(n)) patch.size = n;
 
-  // ✅ المقاس غالبًا أحذية: إذا المستخدم ما ذكر قسم صراحة، "نقلب" القسم لأحذية
-  // (حتى لو كان قبلها عطور/ملابس في نفس الجلسة)
-  if (!liveSection) patch.section = "أحذية";
+// ✅ Session-first: إذا ما ذكر قسم الآن، لا تقلب القسم تلقائيًا.
+// - إذا الجلسة فيها قسم سابق: ورّثه
+// - إذا ما في قسم بالجلسة أصلًا: افترض أحذية (افتراضي معقول للمقاسات)
+if (!liveSection) {
+  if (session?.section) patch.section = session.section;
+  else patch.section = "أحذية";
+}
 }
 
     if (brandInfo?.brandStd) patch.brand_std = brandInfo.brandStd;
