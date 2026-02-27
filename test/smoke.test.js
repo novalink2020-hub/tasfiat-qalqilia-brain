@@ -28,3 +28,17 @@ test("session captures wants_discount + intent_mode via policy", () => {
   assert.equal(s.wants_discount, true);
   assert.equal(s.intent_mode, "deals");
 });
+
+test("size does NOT flip section if session already has one", () => {
+  resetSession("t3");
+
+  // ثبت قسم سابق في الجلسة عبر رسالة صريحة (حسب منطق مشروعك)
+  handleQuery("عطور", { conversationId: "t3" });
+
+  // الآن أرسل مقاس فقط بدون قسم
+  handleQuery("40", { conversationId: "t3" });
+
+  const s = getSession("t3");
+  assert.ok(s);
+  assert.equal(s.section, "عطور"); // المهم: ما تنقلب لأحذية
+});
