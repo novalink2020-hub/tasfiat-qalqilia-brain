@@ -737,7 +737,8 @@ if (askedSizeNumGlobal && Number.isFinite(askedSizeNumGlobal)) {
 }
   if (top.score < minScore) return { type: "none", askedSize };
 
-  if (second && second.score >= top.score - 6) {
+  const tieGap = P?.ranking?.tie_gap ?? 6;
+if (second && second.score >= top.score - tieGap) {
     const options = scored.slice(0, 4).map((s) => ({
       slug: s.item.product_slug || "",
       name: s.item.name || ""
