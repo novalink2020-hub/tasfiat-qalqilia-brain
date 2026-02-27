@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import { normalizeForMatch, tokenize } from "../text/normalize.js";
 import { getSession, updateSession } from "../state/sessionStore.js";
+import { getPolicy, detectIntentMode, wantsDeals } from "../policy/policy.js";
 
 /* =========================
    Basic text utils
@@ -87,8 +88,7 @@ function extractAudienceHint(queryLower) {
 }
 
 function extractDiscountHint(queryLower) {
-  const q = String(queryLower || "");
-  return /خصم|تنزيلات|عروض|sale|off|تخفيض/.test(q);
+  return wantsDeals(queryLower);
 }
 
 function extractSizeQuery(queryLower) {
@@ -725,11 +725,15 @@ if (brandKey && scored.length < 3 && effectiveSection && effectiveAudience) {
   const isBrandishQueryFinal = tokens.length === 1 && queryFold.length <= 6;
 
   // NEW thresholds: a bit more tolerant because keywords are rich and section/audience help
-  let minScore = isBrandFiltered ? 8 : isBrandishQueryFinal ? 12 : 24;
+ const P = getPolicy();
+let minScore = isBrandFiltered
+  ? (P?.ranking?.min_score_brand_filtered ?? 8)
+  : isBrandishQueryFinal
+    ? (P?.ranking?.min_score_brandish ?? 12)
+    : (P?.ranking?.min_score_default ?? 24);
 
-// ✅ إذا فيه مقاس: خفّض العتبة لأن المقاس فلتر قوي حتى لو النص قصير
 if (askedSizeNumGlobal && Number.isFinite(askedSizeNumGlobal)) {
-  minScore = Math.min(minScore, 12);
+  minScore = Math.min(minScore, (P?.ranking?.min_score_when_size_present ?? 12));
 }
   if (top.score < minScore) return { type: "none", askedSize };
 
@@ -821,6 +825,8 @@ if (liveSize) {
     if (liveWantsDiscount) patch.wants_discount = true;
 
     patch.last_user_text = raw;
+         // ✅ intent_mode من policy (بدل تخمينات داخل engine)
+    patch.intent_mode = detectIntentMode(raw);
 
     updateSession(convId, patch);
   }
