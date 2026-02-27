@@ -35,10 +35,11 @@
     }
   },
 
-  "ranking": {
-    "min_score_default": 24,
-    "min_score_brandish": 12,
-    "min_score_brand_filtered": 8,
-    "min_score_when_size_present": 12
-  }
+"ranking": {
+  "min_score_default": 24,
+  "min_score_brandish": 12,
+  "min_score_brand_filtered": 8,
+  "min_score_when_size_present": 12,
+  "tie_gap": 6
+}
 }
