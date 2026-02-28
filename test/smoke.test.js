@@ -215,3 +215,10 @@ test("runtime: accepts Arabic-Indic digits for product choice (١/٢/٣)", () =>
   // المفروض يرجع نتيجة اختيار (found true غالبًا)
   assert.equal(r2.found, true);
 });
+
+test("runtime: HOKA with size should not return product_none", () => {
+  resetSession("t_hoka_size");
+  const r = handleQuery("بدي بوت هوكا رجالي نمرة 39", { conversationId: "t_hoka_size" });
+  const tags = Array.isArray(r.tags) ? r.tags.join("|") : "";
+  assert.equal(tags.includes("product_none"), false);
+});
