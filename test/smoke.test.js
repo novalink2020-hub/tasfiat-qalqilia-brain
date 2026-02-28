@@ -3,7 +3,19 @@ import assert from "node:assert/strict";
 
 import { getPolicy } from "../src/policy/policy.js";
 import { handleQuery } from "../src/search/engine.js";
-import { getSession, resetSession } from "../src/state/sessionStore.js";
+test("size does NOT flip section if session already has one", () => {
+  resetSession("t3");
+
+  // ✅ تهيئة محكمة للجلسة: القسم موجود مسبقًا
+  updateSession("t3", { section: "عطور" });
+
+  // الآن أرسل مقاس فقط بدون قسم
+  handleQuery("40", { conversationId: "t3" });
+
+  const s = getSession("t3");
+  assert.ok(s);
+  assert.equal(s.section, "عطور"); // المهم: ما تنقلب لأحذية
+});
 
 test("policy exposes tie_gap", () => {
   const P = getPolicy();
