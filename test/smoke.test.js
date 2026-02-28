@@ -198,3 +198,20 @@ test("runtime: adidas query returns choices (not product_none)", () => {
   const tags = Array.isArray(r.tags) ? r.tags.join("|") : "";
   assert.equal(tags.includes("product_none"), false);
 });
+
+test("runtime: accepts Arabic-Indic digits for product choice (١/٢/٣)", () => {
+  const choiceMemory = new Map();
+  const ctx = { conversationId: "t_choice_ar", choiceMemory };
+
+  // يولّد قائمة خيارات + يخزنها في choiceMemory
+  const r1 = handleQuery("بدي بوت ستاتي", ctx);
+  assert.equal(r1.ok, true);
+  assert.ok(choiceMemory.has("t_choice_ar"));
+
+  // اختيار ١ بالأرقام العربية الهندية
+  const r2 = handleQuery("١", ctx);
+  assert.equal(r2.ok, true);
+
+  // المفروض يرجع نتيجة اختيار (found true غالبًا)
+  assert.equal(r2.found, true);
+});
