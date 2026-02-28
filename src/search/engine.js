@@ -1052,24 +1052,40 @@ if (!liveSection) {
 
   // المقاس فقط (✅ ثبّت سياق الأحذية داخل الجلسة)
   const askedSize = extractSizeQuery(ql);
-  if (askedSize && isOnlySizeQuery(raw)) {
-    const n = Number(askedSize);
-    if (convId && Number.isFinite(n)) {
-      updateSession(convId, {
-        size: n,
-        section: "أحذية", // ✅ المقاس-only = أحذية دائمًا (لا نرث "عطور" من سياق سابق)
-        // علّم إننا بانتظار تحديد الفئة
-        flags: { ...(session?.flags || {}), pending_pick: "audience_for_size" }
-      });
-    }
+if (askedSize && isOnlySizeQuery(raw)) {
+  const n = Number(askedSize);
 
-    return {
-      ok: true,
-      found: false,
-      reply: `${pickOpening()} المقاس ${askedSize} بدك **رجالي ولا ستاتي ولا ولادي/بناتي**؟ وكمان بتحب السعر ضمن أي مدى تقريبًا؟`,
-      tags: ["lead_product", "needs_clarification", "size_only"]
-    };
+  if (convId && Number.isFinite(n)) {
+    const keepSection = session?.section || null;
+
+    updateSession(convId, {
+      size: n,
+      // ✅ Session-first: لا تقلب القسم إذا كان موجودًا في الجلسة
+      section: keepSection || "أحذية",
+      // لو القسم أحذية نكمّل audience، غير ذلك نطلب تحديد القسم/المنتج لأن "المقاس" قد لا ينطبق
+      flags: {
+        ...(session?.flags || {}),
+        pending_pick: (keepSection && keepSection !== "أحذية") ? "confirm_size_context" : "audience_for_size"
+      }
+    });
   }
+
+  const sNow = convId ? getSession(convId) : null;
+  const secNow = sNow?.section || "أحذية";
+
+  // ✅ رسالة أوضح حسب السياق
+  const ask =
+    secNow === "أحذية"
+      ? `${pickOpening()} المقاس ${askedSize} بدك **رجالي ولا ستاتي ولا ولادي/بناتي**؟ وكمان بتحب السعر ضمن أي مدى تقريبًا؟`
+      : `${pickOpening()} فهمت المقاس ${askedSize}، بس هل تقصد **مقاس أحذية** ولا في منتج ثاني؟ احكيلي شو القسم: **أحذية / ملابس / عطور**.`;
+
+  return {
+    ok: true,
+    found: false,
+    reply: ask,
+    tags: ["lead_product", "needs_clarification", "size_only"]
+  };
+}
 
   // =========================
   // Product Router (قبل fallback)
