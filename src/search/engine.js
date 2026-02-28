@@ -1261,5 +1261,12 @@ return {
   tags: ["lead_product", "product_none"]
 };
   }
-
+  // fallback
+  return {
+    ok: true,
+    found: false,
+    reply: "تمام 😊 احكيلي بدقّة: سؤالك عن **التوصيل** ولا **التبديل** ولا بدك **اقتراح منتجات**؟",
+    tags: ["needs_clarification"]
+  };
+}
 
