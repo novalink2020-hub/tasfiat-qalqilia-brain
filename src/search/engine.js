@@ -90,15 +90,27 @@ function extractAudienceHint(queryLower) {
 function extractDiscountHint(queryLower) {
   return wantsDeals(queryLower);
 }
+function toLatinDigits_(s) {
+  return String(s || "")
+    .replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
+    .replace(/[۰-۹]/g, (d) => "0123456789"["۰۱۲۳۴۵۶۷۸۹".indexOf(d)]);
+}
 
 function extractSizeQuery(queryLower) {
-  const m = queryLower.match(/(^|\s)(\d{2}(?:\.\d)?)(\s|$)/);
-  return m ? String(m[2]) : null;
+  const t = toLatinDigits_(String(queryLower || ""));
+
+  // 1) نمرة/نمره/مقاس/قياس/رقم + رقم (مثل: نمرة 42)
+  const m1 = t.match(/(?:\b(?:نمرة|نمره|مقاس|قياس|رقم)\b)\s*[:\-]?\s*(\d{2,3}(?:\.\d)?)/i);
+  if (m1?.[1]) return String(m1[1]);
+
+  // 2) fallback: رقم مستقل بين كلمات (مثل: "42") — نفس منطقك السابق
+  const m2 = t.match(/(^|\s)(\d{2,3}(?:\.\d)?)(\s|$)/);
+  return m2 ? String(m2[2]) : null;
 }
 
 function isOnlySizeQuery(raw) {
-  const s = normalizeText(raw);
-  return /^\d{2}(\.\d)?$/.test(s);
+  const s = toLatinDigits_(normalizeText(raw));
+  return /^\d{2,3}(\.\d)?$/.test(s);
 }
 
 /* =========================
