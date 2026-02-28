@@ -80,16 +80,19 @@ function normalizePatch_(patch) {
 
   if (!patch || typeof patch !== "object") return out;
 
-  if (patch.section != null) out.section = patch.section || null;
-  if (patch.audience != null) out.audience = patch.audience || null;
+if ("section" in patch) out.section = patch.section ? String(patch.section) : null;
+if ("audience" in patch) out.audience = patch.audience ? String(patch.audience) : null;
 
-  if (patch.size != null) {
+if ("size" in patch) {
+  if (patch.size === null) out.size = null;
+  else {
     const n = Number(patch.size);
     out.size = Number.isFinite(n) ? n : null;
   }
+}
 
-  if (patch.brand_std != null) out.brand_std = patch.brand_std || null;
-  if (patch.brand_key != null) out.brand_key = patch.brand_key || null;
+if ("brand_std" in patch) out.brand_std = patch.brand_std ? String(patch.brand_std) : null;
+if ("brand_key" in patch) out.brand_key = patch.brand_key ? String(patch.brand_key) : null;
 
   if (patch.intent_mode != null) out.intent_mode = patch.intent_mode || "default";
 
