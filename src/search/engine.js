@@ -1190,11 +1190,7 @@ const res = searchKnowledge(effectiveText, {
       };
     }
 
-    // none
-    return {
-      ok: true,
-      found: false,
-// none (fallback: لو فيه نمرة، جرّب نفس الطلب بدون المقاس بدل dead-end)
+   // none (fallback: لو فيه نمرة، جرّب نفس الطلب بدون المقاس بدل dead-end)
 const hadSizeInMsg = !!extractSizeQuery(ql);
 
 if (hadSizeInMsg) {
@@ -1213,7 +1209,9 @@ if (hadSizeInMsg) {
     return {
       ok: true,
       found: true,
-      reply: `ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت هذا من نفس الطلب 👇\n\n` + buildReplyFromItem(res2.item),
+      reply:
+        `ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت هذا من نفس الطلب 👇\n\n` +
+        buildReplyFromItem(res2.item),
       tags: ["lead_product", "product_hit", "size_fallback"]
     };
   }
@@ -1226,7 +1224,7 @@ if (hadSizeInMsg) {
     }
 
     const lines = [];
-    lines.push(`ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت خيارات قريبة. اختر رقم:`);
+    lines.push("ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت خيارات قريبة. اختر رقم:");
 
     opts.forEach((o, i) => {
       const it = getItemBySlug(o.slug) || null;
@@ -1234,6 +1232,7 @@ if (hadSizeInMsg) {
       const name = o.name || it?.name || "—";
       const avail = it?.availability ? String(it.availability).trim() : "";
       const price = (it?.price != null && String(it.price).trim() !== "") ? `${it.price} شيكل` : "";
+
       const parts = [`${icon} ${name}`, avail ? `✅ ${avail}` : "", price ? `💰 ${price}` : ""].filter(Boolean);
       lines.push(`${i + 1}) ${parts.join(" — ")}`);
     });
