@@ -583,21 +583,20 @@ let sizeDistance = null; // 0 exact, 1 near, null none
 const askedSizeNum = askedSizeNumGlobal;
 
 if (askedSizeNum && !isPolicyLike) {
-  const nums = (sizes || "")
-    .split(",")
-    .map(s => Number(String(s).trim()))
+  // ✅ parsing مرن: يلتقط أي رقم من النص مهما كان الفاصل (مسافة/فاصلة/بايب/شرطة/فاصلة عربية)
+  const nums = Array.from(String(sizes || "").matchAll(/(\d{1,3}(?:\.\d)?)/g))
+    .map(m => Number(m[1]))
     .filter(n => Number.isFinite(n));
 
-  if (!nums.length) continue;
-
-  // exact؟
-  if (nums.includes(askedSizeNum)) {
-    sizeDistance = 0;
-  } else {
-    // هامش نمرة واحدة ±1
-    const minDiff = Math.min(...nums.map(n => Math.abs(n - askedSizeNum)));
-    if (minDiff <= 1) sizeDistance = 1;
-    else continue;
+  // ✅ إذا ما قدرنا نقرأ المقاسات من المعرفة: لا نقصي المنتج (خلّيه مرشح بدون boost للمقاس)
+  if (nums.length) {
+    if (nums.includes(askedSizeNum)) {
+      sizeDistance = 0;
+    } else {
+      const minDiff = Math.min(...nums.map(n => Math.abs(n - askedSizeNum)));
+      if (minDiff <= 1) sizeDistance = 1;
+      else continue; // هنا فقط نقصي لأنه واضح أنه لا يطابق حتى ±1
+    }
   }
 }
 
@@ -1195,9 +1194,50 @@ const res = searchKnowledge(effectiveText, {
     return {
       ok: true,
       found: false,
-      reply: "تمام 😊 ما قدرت أحدد المنتج بالضبط من الرسالة. اكتب اسم المنتج أو الكود/الرابط وبساعدك فورًا.",
-      tags: ["lead_product", "product_none"]
+// none (fallback: لو فيه نمرة، جرّب نفس الطلب بدون المقاس بدل dead-end)
+const hadSizeInMsg = !!extractSizeQuery(ql);
+
+if (hadSizeInMsg) {
+  const qNoSize = ql.replace(/(?:\b(?:نمرة|نمره|مقاس|قياس|رقم)\b)\s*[:\-]?\s*\d{1,3}(?:\.\d)?/gi, "").replace(/\s+/g, " ").trim();
+  const res2 = searchKnowledge(qNoSize || effectiveText, { brandKey: effectiveBrandKey, brandExact: !!brandInfo?.exact, session: session || null });
+
+  if (res2.type === "hit" && res2.item) {
+    return {
+      ok: true,
+      found: true,
+      reply: `ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت هذا من نفس الطلب 👇\n\n` + buildReplyFromItem(res2.item),
+      tags: ["lead_product", "product_hit", "size_fallback"]
     };
+  }
+
+  if (res2.type === "clarify") {
+    const opts = (res2.options || []).slice(0, 3);
+    if (convKey && choiceMemory) choiceMemory.set(convKey, { ts: Date.now(), options: opts });
+
+    const lines = [];
+    lines.push(`ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت خيارات قريبة من نفس الطلب. اختر رقم:`);
+    opts.forEach((o, i) => {
+      const it = getItemBySlug(o.slug) || null;
+      const icon = sectionEmoji_(it?.section);
+      const name = o.name || it?.name || "—";
+      const avail = it?.availability ? String(it.availability).trim() : "";
+      const price = (it?.price != null && String(it.price).trim() !== "") ? `${it.price} شيكل` : "";
+      const parts = [ `${icon} ${name}`, avail ? `✅ ${avail}` : "", price ? ` ${price}` : "" ].filter(Boolean);
+      lines.push(`${i + 1}) ${parts.join(" — ")}`);
+    });
+    lines.push("اكتب رقم الخيار فقط (مثال: 1).");
+    lines.push("وإذا بدك نفس النمرة تحديدًا: اكتبها مرة ثانية (مثال: نمرة 41) وأنا بفلتر لك.");
+    return { ok: true, found: false, reply: lines.join("\n"), tags: ["lead_product", "needs_clarification", "has_choices", "size_fallback"] };
+  }
+}
+
+// default none
+return {
+  ok: true,
+  found: false,
+  reply: "تمام 😊 ما قدرت أحدد المنتج بالضبط من الرسالة. اكتب اسم المنتج أو الكود/الرابط وبساعدك فورًا.",
+  tags: ["lead_product", "product_none"]
+};
   }
 
   // fallback
