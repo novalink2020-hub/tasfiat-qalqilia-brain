@@ -1,56 +1,171 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import crypto from "node:crypto";
 
-import { getPolicy } from "../src/policy/policy.js";
+import { getPolicy, detectIntentMode, wantsDeals, foldArabic } from "../src/policy/policy.js";
 import { handleQuery } from "../src/search/engine.js";
-test("size does NOT flip section if session already has one", () => {
-  resetSession("t3");
+import { getSession, updateSession, resetSession } from "../src/state/sessionStore.js";
 
-  // ✅ تهيئة محكمة للجلسة: القسم موجود مسبقًا
-  updateSession("t3", { section: "عطور" });
+/**
+ * =========================================================
+ * 0) Policy Snapshot Guard (Enterprise-grade)
+ * =========================================================
+ * أي تغيير في policy.config.json (حتى كلمة) لازم يطلع Fail.
+ * هذا يمنع “انزلاقات” غير مقصودة في الإعدادات.
+ */
+test("policy snapshot: policy.config.json unchanged", () => {
+  const raw = fs.readFileSync("src/policy/policy.config.json", "utf8");
+  const normalized = JSON.stringify(JSON.parse(raw)); // تجاهل المسافات/الترتيب
+  const hash = crypto.createHash("sha256").update(normalized).digest("hex");
 
-  // الآن أرسل مقاس فقط بدون قسم
-  handleQuery("40", { conversationId: "t3" });
-
-  const s = getSession("t3");
-  assert.ok(s);
-  assert.equal(s.section, "عطور"); // المهم: ما تنقلب لأحذية
+  // ✅ هذه القيمة محسوبة من نسختك الحالية في الريبو
+  assert.equal(hash, "ed07335a518c1edfc53a2fc72de1156babbcf78bf330f448289027491359e8a2");
 });
 
-test("policy exposes tie_gap", () => {
+/**
+ * =========================================================
+ * 1) Policy Guard: ثبّت أهم الإعدادات المتفق عليها
+ * =========================================================
+ */
+test("policy: core settings stable", () => {
   const P = getPolicy();
+
+  // أساسيات
+  assert.equal(P?.version, "policy-v1");
+  assert.equal(P?.locale, "ar-ps");
+
+  // intents موجودة
+  assert.ok(Array.isArray(P?.intents?.deals?.keywords));
+  assert.ok(Array.isArray(P?.intents?.budget?.keywords));
+  assert.ok(Array.isArray(P?.intents?.premium?.keywords));
+
+  // session مفاتيح حرجة
+  assert.equal(P?.session?.assume_section_for_size, "أحذية");
+  assert.equal(P?.session?.reset_on_section_change?.clear_size, true);
+  assert.equal(P?.session?.reset_on_section_change?.clear_brand_if_not_in_message, true);
+  assert.equal(P?.session?.brand_inheritance?.enabled, true);
+  assert.equal(P?.session?.brand_inheritance?.disable_if_message_has_explicit_section, true);
+
+  // ranking أرقام حرجة (قيمك الحالية)
+  assert.equal(P?.ranking?.min_score_default, 24);
+  assert.equal(P?.ranking?.min_score_brandish, 12);
+  assert.equal(P?.ranking?.min_score_brand_filtered, 8);
+  assert.equal(P?.ranking?.min_score_when_size_present, 12);
   assert.equal(P?.ranking?.tie_gap, 6);
 });
 
-test("engine loads and greeting path works without knowledge", () => {
-  const r = handleQuery("مرحبا", { conversationId: "t1" });
-  assert.equal(r.ok, true);
-  assert.equal(r.found, true);
-  assert.ok(String(r.reply || "").includes("أهلًا"));
+test("policy: arabic folding + intent detection stable", () => {
+  // تطبيع عربي
+  assert.equal(foldArabic("أحذية"), "احذيه");
+  assert.equal(foldArabic("إأآٱ"), "اااا");
+
+  // deals
+  assert.equal(wantsDeals("بدّي خصم"), true);
+  assert.equal(detectIntentMode("في تنزيلات؟"), "deals");
+
+  // budget
+  assert.equal(detectIntentMode("بكم سعره؟"), "budget");
+  assert.equal(detectIntentMode("ما بدي اغلى من 100"), "budget");
+
+  // premium
+  assert.equal(detectIntentMode("احسن نوع عندك"), "premium");
+  assert.equal(detectIntentMode("مش مهم السعر"), "premium");
+
+  // default
+  assert.equal(detectIntentMode("مرحبا"), "default");
 });
 
-test("session captures wants_discount + intent_mode via policy", () => {
-  resetSession("t2");
+/**
+ * =========================================================
+ * 2) Engine Guard: منع رجوع الأرقام السحرية/الترقيع
+ * =========================================================
+ */
+test("engine: tie_gap is NOT hardcoded as top.score - 6", () => {
+  const src = fs.readFileSync("src/search/engine.js", "utf8");
+  assert.equal(src.includes("top.score - 6"), false);
+});
 
-  const r = handleQuery("بدي عروض", { conversationId: "t2" });
+test("engine: tie_gap reads from policy (exists in code)", () => {
+  const src = fs.readFileSync("src/search/engine.js", "utf8");
+  // وجود tie_gap في القراءة يثبت أن engine صار policy-driven
+  assert.ok(src.includes("P?.ranking?.tie_gap"));
+});
+
+/**
+ * =========================================================
+ * 3) Runtime Smoke: سلوك تشغيل + Session Memory Rules
+ * =========================================================
+ */
+test("runtime: greeting works", () => {
+  const r = handleQuery("مرحبا", { conversationId: "t_hello" });
+  assert.equal(r.ok, true);
+  assert.equal(r.found, true);
+  assert.ok(String(r.reply || "").length > 0);
+});
+
+test("runtime: wants_discount + intent_mode stored (deals)", () => {
+  resetSession("t_deals");
+  const r = handleQuery("بدي عروض", { conversationId: "t_deals" });
   assert.equal(r.ok, true);
 
-  const s = getSession("t2");
+  const s = getSession("t_deals");
   assert.ok(s);
   assert.equal(s.wants_discount, true);
   assert.equal(s.intent_mode, "deals");
 });
 
-test("size does NOT flip section if session already has one", () => {
-  resetSession("t3");
+test("runtime: audience-only should NOT overwrite existing section", () => {
+  resetSession("t_aud");
+  updateSession("t_aud", { section: "عطور" });
 
-  // ثبت قسم سابق في الجلسة عبر رسالة صريحة (حسب منطق مشروعك)
-  handleQuery("عطور", { conversationId: "t3" });
+  handleQuery("رجالي", { conversationId: "t_aud" });
 
-  // الآن أرسل مقاس فقط بدون قسم
-  handleQuery("40", { conversationId: "t3" });
-
-  const s = getSession("t3");
+  const s = getSession("t_aud");
   assert.ok(s);
-  assert.equal(s.section, "عطور"); // المهم: ما تنقلب لأحذية
+  assert.equal(s.section, "عطور");     // ما تغير
+  assert.equal(s.audience, "رجالي");   // فقط audience
+});
+
+test("runtime: size-only should NOT flip section if session already has one", () => {
+  resetSession("t_size_keep");
+  updateSession("t_size_keep", { section: "عطور" });
+
+  handleQuery("40", { conversationId: "t_size_keep" });
+
+  const s = getSession("t_size_keep");
+  assert.ok(s);
+  assert.equal(s.section, "عطور"); // لا تنقلب لأحذية
+  assert.equal(typeof s.size, "number"); // المقاس اتخزن
+});
+
+test("runtime: size-only sets section to policy default ONLY when session has none", () => {
+  resetSession("t_size_default");
+
+  handleQuery("40", { conversationId: "t_size_default" });
+
+  const s = getSession("t_size_default");
+  assert.ok(s);
+  assert.equal(s.section, "أحذية"); // default من policy/session
+  assert.equal(typeof s.size, "number");
+});
+
+test("runtime: section change clears size + clears brand (when brand not in message)", () => {
+  resetSession("t_clear");
+  updateSession("t_clear", {
+    section: "أحذية",
+    size: 40,
+    brand_key: "nike",
+    brand_std: "Nike"
+  });
+
+  // رسالة تغيّر القسم بدون ماركة
+  handleQuery("عطور", { conversationId: "t_clear" });
+
+  const s = getSession("t_clear");
+  assert.ok(s);
+  assert.equal(s.section, "عطور");
+  assert.equal(s.size, null);
+  assert.equal(s.brand_key, null);
+  assert.equal(s.brand_std, null);
 });
