@@ -1198,36 +1198,58 @@ const res = searchKnowledge(effectiveText, {
 const hadSizeInMsg = !!extractSizeQuery(ql);
 
 if (hadSizeInMsg) {
-  const qNoSize = ql.replace(/(?:\b(?:نمرة|نمره|مقاس|قياس|رقم)\b)\s*[:\-]?\s*\d{1,3}(?:\.\d)?/gi, "").replace(/\s+/g, " ").trim();
-  const res2 = searchKnowledge(qNoSize || effectiveText, { brandKey: effectiveBrandKey, brandExact: !!brandInfo?.exact, session: session || null });
+  const qNoSize = ql
+    .replace(/(?:\b(?:نمرة|نمره|مقاس|قياس|رقم)\b)\s*[:\-]?\s*\d{1,3}(?:\.\d)?/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const res2 = searchKnowledge(qNoSize || effectiveText, {
+    brandKey: effectiveBrandKey,
+    brandExact: !!brandInfo?.exact,
+    session: session || null
+  });
 
   if (res2.type === "hit" && res2.item) {
     return {
       ok: true,
       found: true,
-      reply: `ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت هذا من نفس الطلب 👇\n\n` + buildReplyFromItem(res2.item),
+      reply:
+        `ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت هذا من نفس الطلب 👇\n\n` +
+        buildReplyFromItem(res2.item),
       tags: ["lead_product", "product_hit", "size_fallback"]
     };
   }
 
   if (res2.type === "clarify") {
     const opts = (res2.options || []).slice(0, 3);
-    if (convKey && choiceMemory) choiceMemory.set(convKey, { ts: Date.now(), options: opts });
+
+    if (convKey && choiceMemory) {
+      choiceMemory.set(convKey, { ts: Date.now(), options: opts });
+    }
 
     const lines = [];
-    lines.push(`ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت خيارات قريبة من نفس الطلب. اختر رقم:`);
+    lines.push(`ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت خيارات قريبة. اختر رقم:`);
+
     opts.forEach((o, i) => {
       const it = getItemBySlug(o.slug) || null;
       const icon = sectionEmoji_(it?.section);
       const name = o.name || it?.name || "—";
       const avail = it?.availability ? String(it.availability).trim() : "";
       const price = (it?.price != null && String(it.price).trim() !== "") ? `${it.price} شيكل` : "";
-      const parts = [ `${icon} ${name}`, avail ? `✅ ${avail}` : "", price ? ` ${price}` : "" ].filter(Boolean);
+
+      const parts = [`${icon} ${name}`, avail ? `✅ ${avail}` : "", price ? `💰 ${price}` : ""].filter(Boolean);
       lines.push(`${i + 1}) ${parts.join(" — ")}`);
     });
+
     lines.push("اكتب رقم الخيار فقط (مثال: 1).");
     lines.push("وإذا بدك نفس النمرة تحديدًا: اكتبها مرة ثانية (مثال: نمرة 41) وأنا بفلتر لك.");
-    return { ok: true, found: false, reply: lines.join("\n"), tags: ["lead_product", "needs_clarification", "has_choices", "size_fallback"] };
+
+    return {
+      ok: true,
+      found: false,
+      reply: lines.join("\n"),
+      tags: ["lead_product", "needs_clarification", "has_choices", "size_fallback"]
+    };
   }
 }
 
