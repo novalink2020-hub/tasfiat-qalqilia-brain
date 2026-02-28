@@ -525,8 +525,21 @@ const hardAudience = audienceHint || sess?.audience || null;
     const brandStdRaw = String(x?.brand_std || "");
     const itemBrandKey = normKey(brandStdRaw);
 
-    // STRICT brand filter if brandKey is known
-    if (brandKey && itemBrandKey && itemBrandKey !== brandKey) continue;
+// Brand filter (relaxed, enterprise-grade):
+// - بدل مساواة صارمة فقط، نقبل التطابق الجزئي لأن المعرفة قد تحتوي brand_std بصيغ مثل "ADIDAS ORIGINALS"
+if (brandKey) {
+  const k = String(brandKey || "").trim();
+  const ibk = String(itemBrandKey || "").trim();
+
+  // التطابق عبر brand_std (بعد التطبيع) أو عبر brand_tags
+  const tagsHit = k && tagsLow.includes(k);
+  const stdHit =
+    k &&
+    ibk &&
+    (ibk === k || ibk.startsWith(k) || ibk.includes(k) || k.startsWith(ibk));
+
+  if (!tagsHit && !stdHit) continue;
+}
 
     const gender = String(x.gender || "");
     const gender2 = String(x.gender_2 || "");
