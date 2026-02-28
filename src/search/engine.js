@@ -1213,9 +1213,7 @@ if (hadSizeInMsg) {
     return {
       ok: true,
       found: true,
-      reply:
-        `ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت هذا من نفس الطلب 👇\n\n` +
-        buildReplyFromItem(res2.item),
+      reply: `ملاحظة: ما لقيت نفس النمرة بالضبط، بس لقيت هذا من نفس الطلب 👇\n\n` + buildReplyFromItem(res2.item),
       tags: ["lead_product", "product_hit", "size_fallback"]
     };
   }
@@ -1236,7 +1234,6 @@ if (hadSizeInMsg) {
       const name = o.name || it?.name || "—";
       const avail = it?.availability ? String(it.availability).trim() : "";
       const price = (it?.price != null && String(it.price).trim() !== "") ? `${it.price} شيكل` : "";
-
       const parts = [`${icon} ${name}`, avail ? `✅ ${avail}` : "", price ? `💰 ${price}` : ""].filter(Boolean);
       lines.push(`${i + 1}) ${parts.join(" — ")}`);
     });
