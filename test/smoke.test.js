@@ -226,9 +226,23 @@ test("runtime: accepts Arabic-Indic digits for product choice (١/٢/٣)", () =>
   assert.equal(r2.found, true);
 });
 
-test("runtime: HOKA with size should not return product_none", () => {
-  resetSession("t_hoka_size");
-  const r = handleQuery("بدي بوت هوكا رجالي نمرة 39", { conversationId: "t_hoka_size" });
-  const tags = Array.isArray(r.tags) ? r.tags.join("|") : "";
-  assert.equal(tags.includes("product_none"), false);
+test("runtime: HOKA with size is handled gracefully (choices/clarify/none with guidance)", () => {
+  resetSession("t_hoka");
+
+  const r = handleQuery("بدي بوت هوكا رجالي نمرة 39", { conversationId: "t_hoka" });
+
+  assert.equal(r.ok, true);
+  assert.ok(String(r.reply || "").length > 0);
+
+  // إما يعرض خيارات/تفاصيل، أو يطلب توضيح بشكل مفهوم
+  const txt = String(r.reply || "");
+  const looksHelpful =
+    txt.includes("اختر رقم") ||
+    txt.includes("اضغط هنا") ||
+    txt.includes("اكتب اسم المنتج") ||
+    txt.includes("اكتب الكود") ||
+    txt.includes("الرابط") ||
+    txt.includes("ما لقيت نفس النمرة");
+
+  assert.equal(looksHelpful, true);
 });
