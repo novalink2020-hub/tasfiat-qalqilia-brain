@@ -169,3 +169,13 @@ test("runtime: section change clears size + clears brand (when brand not in mess
   assert.equal(s.brand_key, null);
   assert.equal(s.brand_std, null);
 });
+
+test("runtime: detects size inside arabic sentence (نمرة 42) and stores it", () => {
+  resetSession("t_size_sentence");
+
+  handleQuery("بدي بوت ريبوك رجالي نمرة 42", { conversationId: "t_size_sentence" });
+
+  const s = getSession("t_size_sentence");
+  assert.ok(s);
+  assert.equal(s.size, 42);
+});
