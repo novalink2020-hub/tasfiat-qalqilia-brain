@@ -891,7 +891,7 @@ if (!liveSection) {
   const convKey = conversationId !== null ? String(conversationId) : null;
 
   // اختيار رقم من قائمة (generic)
-  const choiceNum = raw.match(/^\s*([1-4])\s*$/)?.[1] || null;
+  const choiceNum = toLatinDigits_(raw).match(/^\s*([1-4])\s*$/)?.[1] || null;
   if (choiceNum && convKey && choiceMemory?.has(convKey)) {
     const mem = choiceMemory.get(convKey);
     const picked = mem?.options?.[Number(choiceNum) - 1];
