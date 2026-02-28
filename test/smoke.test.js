@@ -189,3 +189,12 @@ test("runtime: detects size inside arabic sentence (نمرة 42) and stores it",
   assert.ok(s);
   assert.equal(s.size, 42);
 });
+
+test("runtime: adidas query returns choices (not product_none)", () => {
+  resetSession("t_adidas");
+  const r = handleQuery("بدي بوت اديداس ستاتي نمرة 36", { conversationId: "t_adidas" });
+
+  // لازم يعطينا قائمة اختيارات أو نتيجة، المهم لا يرجع product_none
+  const tags = Array.isArray(r.tags) ? r.tags.join("|") : "";
+  assert.equal(tags.includes("product_none"), false);
+});
