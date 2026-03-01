@@ -267,24 +267,20 @@ test("runtime: deals/budget clears choiceMemory + last_user_text", () => {
   assert.equal(s.flags?.pending_pick ?? null, null);
 });
 
-test("runtime: audience-drop fallback is helpful when brand+audi fails", () => {
-  resetSession("t_aud_drop");
-  const r = handleQuery("بدي بوت اديداس ستاتي نمرة 40", { conversationId: "t_aud_drop" });
+test("runtime: brand-relax fallback is helpful when brand+audi fails", () => {
+  resetSession("t_brand_relax");
+  const r = handleQuery("بدي بوت اديداس ستاتي نمرة 40", { conversationId: "t_brand_relax" });
 
   assert.equal(r.ok, true);
   const txt = String(r.reply || "");
   assert.ok(txt.length > 0);
 
-  const looksHelpful =
-    txt.includes("اختر رقم") ||
-    txt.includes("أقرب خيارات") ||
-    txt.includes("اضغط هنا") ||
-    txt.includes("اكتب اسم المنتج") ||
-    txt.includes("الكود") ||
-    txt.includes("الرابط") ||
-    txt.includes("ملاحظة:");
+  // لازم يوضح أنه لم يجد نفس الماركة ويقترح بدائل
+  const looksLikeBrandFallback =
+    txt.includes("ما لقيت") &&
+    (txt.includes("بدائل") || txt.includes("خيار بديل") || txt.includes("ماركة ثانية") || txt.includes("نفس الماركة"));
 
-  assert.equal(looksHelpful, true);
+  assert.equal(looksLikeBrandFallback, true);
 });
 
 test("lock: cart-followup lock prevents duplicates", async () => {
