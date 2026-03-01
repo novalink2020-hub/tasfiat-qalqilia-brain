@@ -889,6 +889,20 @@ if (!liveSection) {
   const choiceMemory = ctx?.choiceMemory;
   const convKey = conversationId !== null ? String(conversationId) : null;
 
+   // ✅ تنظيف سياق الاختيار/آخر منتج عند deals/budget (حتى ما يعيد نفس المنتج)
+const modeNow = detectIntentMode(raw);
+if (convId && (modeNow === "deals" || modeNow === "budget")) {
+  // امسح قائمة الخيارات السابقة
+  if (convKey && choiceMemory?.has(convKey)) choiceMemory.delete(convKey);
+
+  // امسح أثر آخر استعلام/اختيار حتى ما يظل “ممسوك”
+  updateSession(convId, {
+    last_user_text: null,
+    // امسح أي pending_pick قديم (مثلاً بعد اختيار من قائمة)
+    flags: { ...(session?.flags || {}), pending_pick: null }
+  });
+}
+   
   // اختيار رقم من قائمة (generic)
   const choiceNum = toLatinDigits_(raw).match(/^\s*([1-4])\s*$/)?.[1] || null;
   if (choiceNum && convKey && choiceMemory?.has(convKey)) {
