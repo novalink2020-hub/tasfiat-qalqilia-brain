@@ -249,22 +249,28 @@ test("runtime: HOKA with size is handled gracefully (choices/clarify/none with g
   assert.equal(looksHelpful, true);
 });
 
-test("runtime: deals/budget clears choiceMemory + last_user_text", () => {
+test("runtime: deals/budget clears choiceMemory + pending_pick (does not stick to previous product)", () => {
   const choiceMemory = new Map();
   const convId = "t_ctx_clear";
   choiceMemory.set(convId, { ts: Date.now(), options: [{ slug: "__x__", name: "X" }] });
 
   resetSession(convId);
-  updateSession(convId, { last_user_text: "BROOKS something", flags: { pending_pick: "x" } });
+  updateSession(convId, { flags: { pending_pick: "x" }, last_user_text: "OLD_CONTEXT" });
 
+  // دخول نية budget
   handleQuery("بدي ارخص اشي", { conversationId: convId, choiceMemory });
 
+  // لازم choiceMemory ينمسح
   assert.equal(choiceMemory.has(convId), false);
 
   const s = getSession(convId);
   assert.ok(s);
-  assert.equal(s.last_user_text, null);
+
+  // pending_pick لازم ينمسح (هذا هو المقصود من تنظيف السياق)
   assert.equal(s.flags?.pending_pick ?? null, null);
+
+  // last_user_text طبيعي يساوي آخر رسالة للمستخدم (مش شرط null)
+  assert.equal(s.last_user_text, "بدي ارخص اشي");
 });
 
 test("runtime: brand-relax fallback is helpful when brand+audi fails", () => {
