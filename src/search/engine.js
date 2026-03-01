@@ -1262,7 +1262,55 @@ if (hadSizeInMsg) {
     };
   }
 }
+// ✅ Brand-relax fallback: لا نغيّر audience إطلاقًا.
+// إذا الماركة المطلوبة فشلت، نعطي بدائل بنفس الجمهور + نفس المقاس/الوصف بدون قيد الماركة.
+const hasAudienceWord = /(رجالي|رجال|شباب|ستاتي|نسائي|نساء|حريمي|ولادي|اولاد|أولاد|اطفال|أطفال|بناتي|بنات)/i.test(ql);
+const hadBrandInMsg = !!effectiveBrandKey;
 
+if (hasAudienceWord && hadBrandInMsg) {
+  // جرّب نفس الطلب لكن بدون قيد الماركة (بدائل بنفس audience/size)
+  const resAlt = searchKnowledge(ql || effectiveText, {
+    brandKey: null,        // ✅ ألغِ قيد الماركة فقط
+    brandExact: false,
+    session: session || null
+  });
+
+  if (resAlt.type === "hit" && resAlt.item) {
+    return {
+      ok: true,
+      found: true,
+      reply:
+        `تمام 👌 طلبك واضح: ${extractAudienceHint(ql) || "نفس الجمهور"}${extractSizeQuery(ql) ? ` مقاس ${extractSizeQuery(ql)}` : ""} من ${brandInfo?.brandStd || "نفس الماركة"}.\n` +
+        `بحثت على نفس الماركة بهالمواصفات وما لقيت المقاس متوفر حالياً.\n` +
+        `عشان ما نضيّع وقتك، هذا خيار بديل بنفس المواصفات من ماركة ثانية (جودة قريبة). إذا بدك نفس الماركة فقط احكيلي وبثبت البحث عليها.\n\n` +
+        buildReplyFromItem(resAlt.item),
+      tags: ["lead_product", "product_hit", "brand_fallback"]
+    };
+  }
+
+  if (resAlt.type === "clarify") {
+    const opts = (resAlt.options || []).slice(0, 3);
+    if (convKey && choiceMemory) choiceMemory.set(convKey, { ts: Date.now(), options: opts });
+
+    const lines = [];
+    lines.push(
+      `تمام 👌 طلبك واضح: ${extractAudienceHint(ql) || "نفس الجمهور"}${extractSizeQuery(ql) ? ` مقاس ${extractSizeQuery(ql)}` : ""} من ${brandInfo?.brandStd || "نفس الماركة"}.`
+    );
+    lines.push("بحثت على نفس الماركة بهالمواصفات وما لقيت المقاس متوفر حالياً.");
+    lines.push("بدل ما نوقف، هاي 3 بدائل بنفس الجمهور/المقاس من ماركات قريبة. إذا بدك نفس الماركة فقط احكيلي وبثبت البحث عليها:");
+    lines.push("اختر رقم:");
+    opts.forEach((o, i) => lines.push(`${i + 1}) ${o.name || "—"}`));
+    lines.push("اكتب رقم الخيار فقط (مثال: 1).");
+
+    return {
+      ok: true,
+      found: false,
+      reply: lines.join("\n"),
+      tags: ["lead_product", "has_choices", "brand_fallback"]
+    };
+  }
+}
+     
 // default none
 return {
   ok: true,
