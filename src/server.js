@@ -5,6 +5,7 @@ import { CONFIG } from "./config.js";
 import { seenMessageIds, choiceMemory } from "./state/memoryStore.js";
 import { loadKnowledge, getKnowledge } from "./knowledge/loader.js";
 import { handleQuery } from "./search/engine.js";
+import { tryLockCartFollowup, setCartFollowupTimeoutId, unlockCartFollowup } from "./chatwoot/cartFollowupLock.js";
 import {
   chatwootCreateMessage,
   chatwootSetLabels,
@@ -130,12 +131,19 @@ app.post("/chatwoot/cart-followup", async (req, res) => {
     const convId = String(convIdRaw);
     console.log("🧾 cart-followup resolved conversationId:", convId);
 
-    if (pendingCartFollowups.has(convId)) {
-      console.log("🛑 cart-followup ignored (already scheduled) for", convId);
-      return;
-    }
+// ✅ Lock مبكّر يمنع race condition
+if (!tryLockCartFollowup(convId)) {
+  console.log("🛑 cart-followup ignored (already scheduled) for", convId);
+  return;
+}
 
-    // إذا تمت متابعة السلة سابقًا في نفس المحادثة: لا تعيد
+// إذا تمت متابعة السلة سابقًا في نفس المحادثة: لا تعيد
+const conv = await chatwootGetConversation(convId);
+const existingLabels = Array.isArray(conv?.labels) ? conv.labels : [];
+if (existingLabels.includes("متابعة_السلة_تمت")) {
+  unlockCartFollowup(convId);
+  return;
+}
     const conv = await chatwootGetConversation(convId);
     const existingLabels = Array.isArray(conv?.labels) ? conv.labels : [];
     if (existingLabels.includes("متابعة_السلة_تمت")) return;
@@ -199,11 +207,11 @@ app.post("/chatwoot/cart-followup", async (req, res) => {
       } catch (e) {
         console.error("cart-followup job failed:", e);
       } finally {
-        pendingCartFollowups.delete(convId);
+        unlockCartFollowup(convId);
       }
     }, delayMs);
 
-    pendingCartFollowups.set(convId, timeoutId);
+    setCartFollowupTimeoutId(convId, timeoutId);
   } catch (e) {
     console.error(e);
     try { res.json({ ok: false, error: "cart_followup_failed" }); } catch {}
