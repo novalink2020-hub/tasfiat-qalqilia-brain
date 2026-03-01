@@ -145,8 +145,8 @@ if (existingLabels.includes("متابعة_السلة_تمت")) {
   return;
 }
     const convLatest = await chatwootGetConversation(convId);
-    const existingLabels = Array.isArray(convLatest?.labels) ? convLatest.labels : [];
-    if (existingLabels.includes("متابعة_السلة_تمت")) return;
+    const labelsNow = Array.isArray(convLatest?.labels) ? convLatest.labels : [];
+    if (labelsNow.includes("متابعة_السلة_تمت")) return;
 
     // نقطة مرجعية: آخر incoming الآن
     const before = await chatwootGetMessages(convId, 1);
