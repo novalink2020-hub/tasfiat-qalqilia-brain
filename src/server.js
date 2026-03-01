@@ -144,8 +144,8 @@ if (existingLabels.includes("متابعة_السلة_تمت")) {
   unlockCartFollowup(convId);
   return;
 }
-    const conv = await chatwootGetConversation(convId);
-    const existingLabels = Array.isArray(conv?.labels) ? conv.labels : [];
+    const convLatest = await chatwootGetConversation(convId);
+    const existingLabels = Array.isArray(convLatest?.labels) ? convLatest.labels : [];
     if (existingLabels.includes("متابعة_السلة_تمت")) return;
 
     // نقطة مرجعية: آخر incoming الآن
