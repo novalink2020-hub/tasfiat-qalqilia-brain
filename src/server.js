@@ -260,15 +260,27 @@ app.post("/chatwoot/webhook", async (req, res) => {
       choiceMemory
     });
 
-    const labels = mapToChatwootLabels(out.tags || []);
-    if (labels.length) {
-      // ملاحظة: هذا يستبدل labels. إذا بدك merge لاحقًا نعمله بتعديل صغير.
-      await chatwootSetLabels(conversationId, labels);
-    }
+const labels = mapToChatwootLabels(out.tags || []);
 
-    await chatwootCreateMessage(conversationId, out.reply);
+// ✅ Merge + Idempotent: لا تعيد إرسال نفس label مرتين (يمنع تكرار automations)
+if (labels.length) {
+  const convNow = await chatwootGetConversation(conversationId);
+  const existing = Array.isArray(convNow?.labels) ? convNow.labels : [];
 
-    return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
+  const merged = Array.from(new Set([...existing, ...labels]));
+
+  // لا تعمل setLabels إذا ما في أي تغيير
+  const same =
+    merged.length === existing.length &&
+    merged.every((x) => existing.includes(x));
+
+  if (!same) {
+    await chatwootSetLabels(conversationId, merged);
+  }
+}
+
+await chatwootCreateMessage(conversationId, out.reply);
+return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
   } catch (e) {
     console.error(e);
     return res.json({ ok: false, error: "webhook_failed" });
