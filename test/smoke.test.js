@@ -248,3 +248,50 @@ test("runtime: HOKA with size is handled gracefully (choices/clarify/none with g
 
   assert.equal(looksHelpful, true);
 });
+
+test("runtime: deals/budget clears choiceMemory + last_user_text", () => {
+  const choiceMemory = new Map();
+  const convId = "t_ctx_clear";
+  choiceMemory.set(convId, { ts: Date.now(), options: [{ slug: "__x__", name: "X" }] });
+
+  resetSession(convId);
+  updateSession(convId, { last_user_text: "BROOKS something", flags: { pending_pick: "x" } });
+
+  handleQuery("بدي ارخص اشي", { conversationId: convId, choiceMemory });
+
+  assert.equal(choiceMemory.has(convId), false);
+
+  const s = getSession(convId);
+  assert.ok(s);
+  assert.equal(s.last_user_text, null);
+  assert.equal(s.flags?.pending_pick ?? null, null);
+});
+
+test("runtime: audience-drop fallback is helpful when brand+audi fails", () => {
+  resetSession("t_aud_drop");
+  const r = handleQuery("بدي بوت اديداس ستاتي نمرة 40", { conversationId: "t_aud_drop" });
+
+  assert.equal(r.ok, true);
+  const txt = String(r.reply || "");
+  assert.ok(txt.length > 0);
+
+  const looksHelpful =
+    txt.includes("اختر رقم") ||
+    txt.includes("أقرب خيارات") ||
+    txt.includes("اضغط هنا") ||
+    txt.includes("اكتب اسم المنتج") ||
+    txt.includes("الكود") ||
+    txt.includes("الرابط") ||
+    txt.includes("ملاحظة:");
+
+  assert.equal(looksHelpful, true);
+});
+
+test("lock: cart-followup lock prevents duplicates", async () => {
+  const mod = await import("../src/chatwoot/cartFollowupLock.js");
+  const ok1 = mod.tryLockCartFollowup("t_lock");
+  const ok2 = mod.tryLockCartFollowup("t_lock");
+  assert.equal(ok1, true);
+  assert.equal(ok2, false);
+  mod.unlockCartFollowup("t_lock");
+});
