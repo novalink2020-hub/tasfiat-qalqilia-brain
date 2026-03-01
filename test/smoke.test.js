@@ -291,3 +291,21 @@ test("lock: cart-followup lock prevents duplicates", async () => {
   assert.equal(ok2, false);
   mod.unlockCartFollowup("t_lock");
 });
+test("runtime: brand-relax fallback is helpful (does not change audience)", () => {
+  resetSession("t_brand_fb");
+  const r = handleQuery("بدي بوت اديداس ستاتي نمرة 40", { conversationId: "t_brand_fb" });
+
+  assert.equal(r.ok, true);
+  const txt = String(r.reply || "");
+  assert.ok(txt.length > 0);
+
+  // لازم يوضح أنه لم يجد نفس الماركة ويقترح بدائل
+  const looksLikeBrandFallback =
+    (txt.includes("ما لقيت") || txt.includes("مش متوفر")) &&
+    (txt.includes("بدائل") || txt.includes("ماركة ثانية") || txt.includes("خيار بديل"));
+
+  assert.equal(looksLikeBrandFallback, true);
+
+  // والأهم: ما يذكر أنه غيّر ستاتي/رجالي (نحافظ على النية)
+  assert.equal(txt.includes("ما لقيت ستاتي") || txt.includes("ما لقيت رجالي"), false);
+});
