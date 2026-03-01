@@ -156,7 +156,7 @@ if (existingLabels.includes("متابعة_السلة_تمت")) {
 
     const delayMs = 90 * 1000;
 
-    const timeoutId = setTimeout(async () => {
+    const timeoutId = setTimeout(async () => { {
       try {
         const convLatest = await chatwootGetConversation(convId);
         const labelsNow = Array.isArray(convLatest?.labels) ? convLatest.labels : [];
@@ -209,7 +209,7 @@ if (existingLabels.includes("متابعة_السلة_تمت")) {
       } finally {
         unlockCartFollowup(convId);
       }
-    }, delayMs);
+    } }, delayMs);
 
     setCartFollowupTimeoutId(convId, timeoutId);
   } catch (e) {
