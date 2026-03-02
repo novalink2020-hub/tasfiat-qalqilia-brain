@@ -325,3 +325,12 @@ test("runtime: size phrase مثل (نمرة 44) triggers audience question (not 
   assert.equal(r.found, false);
   assert.ok(String(r.reply || "").includes("المقاس 44"));
 });
+
+test("runtime: gate for (بدي بوت رجالي) asks for size/brand instead of listing", () => {
+  const r = handleQuery("بدي بوت رجالي", { conversationId: "t_gate" });
+  assert.equal(r.ok, true);
+  assert.equal(r.found, false);
+  const txt = String(r.reply || "");
+  assert.ok(txt.includes("شو المقاس"));
+  assert.ok(txt.includes("ماركة"));
+});
