@@ -105,8 +105,8 @@ const MAX_BLANK_AUDIENCE = 50;
 
 // “Gate ذكي” للديمو: اسم/قسم فارغ مسموح بعدد صغير (ونطبع أمثلة)
 // إذا بدك تشددها لاحقًا: خليها 0
-const MAX_EMPTY_NAME = 5;
-const MAX_EMPTY_SECTION = 5;
+const MAX_EMPTY_NAME = 15;
+const MAX_EMPTY_SECTION = 15;
 
 // availability الفارغ: الديمو يسمح حتى 3%
 const MAX_EMPTY_AVAIL_RATIO = 0.03;
