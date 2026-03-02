@@ -308,3 +308,13 @@ test("runtime: brand-relax fallback is safe + helpful (conditional)", () => {
     assert.equal(txt.includes("حوّلنا") || txt.includes("غيرنا الجمهور"), false);
   }
 });
+
+test("runtime: audience reply after size prompt clears pending_pick", () => {
+  resetSession("t_pick");
+  handleQuery("44", { conversationId: "t_pick" });       // يضع pending_pick
+  handleQuery("ستاتي", { conversationId: "t_pick" });    // لازم يمسحه
+
+  const s = getSession("t_pick");
+  assert.ok(s);
+  assert.equal(s.flags?.pending_pick ?? null, null);
+});
