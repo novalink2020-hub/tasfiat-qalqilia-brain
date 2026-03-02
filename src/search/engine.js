@@ -1138,6 +1138,12 @@ const msgSection = extractSectionHint(ql); // من الرسالة الحالية
 const msgHasSize = !!extractSizeQuery(ql);
 const msgAudienceOnly = isAudienceOnly_(ql);
 const msgDealsOnly = isDealsOnly_(ql);
+     // ✅ إذا كنا بمرحلة "اختيار الجمهور للمقاس" ووصلك جواب audience فقط:
+// امسح pending_pick حتى ما تظل الجلسة ماسكة سياق قديم
+const pendingPick = session?.flags?.pending_pick || null;
+if (convId && msgAudienceOnly && pendingPick === "audience_for_size") {
+  updateSession(convId, { flags: { ...(session?.flags || {}), pending_pick: null } });
+}
 
 // ✅ لا تورّث الماركة إلا إذا المستخدم ذكرها صراحة
 // ✅ ولا تورّثها إذا الرسالة “مقاس/رجالي/خصومات” لأنها قيود نية مش طلب ماركة
@@ -1154,14 +1160,48 @@ const res = searchKnowledge(effectiveText, {
   brandExact: !!brandInfo?.exact,
   session: session || null
 });
-    if (res.type === "hit" && res.item) {
-      return {
-        ok: true,
-        found: true,
-        reply: buildReplyFromItem(res.item),
-        tags: ["lead_product", "product_hit", "سلة_التسوق"]
-      };
+if (res.type === "hit" && res.item) {
+  // ✅ منع hit غلط عندما audience محدد (خصوصًا بعد سؤال المقاس)
+  const desiredAud = extractAudienceHint(ql) || session?.audience || null;
+  const itemAud = res.item?.audience ? String(res.item.audience).trim() : null;
+
+  // إذا عندنا audience مطلوب والمنتج مصنف audience مختلف → لا نرجع hit مباشرة
+  if (desiredAud && itemAud && itemAud !== desiredAud) {
+    // جرّب بحث "أشد" بإضافة audience صراحة (يعيد ترتيب النتائج)
+    const resStrict = searchKnowledge(`${effectiveText} ${desiredAud}`, {
+      brandKey: effectiveBrandKey,
+      brandExact: !!brandInfo?.exact,
+      session: session || null
+    });
+
+    if (resStrict.type === "hit" && resStrict.item) {
+      return { ok: true, found: true, reply: buildReplyFromItem(resStrict.item), tags: ["lead_product", "product_hit", "سلة_التسوق"] };
     }
+
+    if (resStrict.type === "clarify") {
+      const opts = (resStrict.options || []).slice(0, 3);
+      if (convKey && choiceMemory) choiceMemory.set(convKey, { ts: Date.now(), options: opts });
+
+      const lines = [];
+      lines.push(`${pickOpening()} لقيت أكثر من خيار، اختر رقم:`);
+      opts.forEach((o, i) => {
+        const it = getItemBySlug(o.slug) || null;
+        const icon = sectionEmoji_(it?.section);
+        const name = o.name || it?.name || "—";
+        const avail = it?.availability ? String(it.availability).trim() : "";
+        const price = (it?.price != null && String(it.price).trim() !== "") ? `${it.price} شيكل` : "";
+        const parts = [ `${icon} ${name}`, avail ? `✅ ${avail}` : "", price ? ` ${price}` : "" ].filter(Boolean);
+        lines.push(`${i + 1}) ${parts.join(" — ")}`);
+      });
+      lines.push("اكتب رقم الخيار فقط (مثال: 1).");
+
+      return { ok: true, found: false, reply: lines.join("\n"), tags: ["lead_product", "needs_clarification", "has_choices"] };
+    }
+    // إذا ما قدرنا: نكمل لباقي fallback بدل hit غلط
+  } else {
+    return { ok: true, found: true, reply: buildReplyFromItem(res.item), tags: ["lead_product", "product_hit", "سلة_التسوق"] };
+  }
+}
 
     if (res.type === "clarify") {
       const opts = (res.options || []).slice(0, 3);
