@@ -127,28 +127,47 @@ test("runtime: audience-only should NOT overwrite existing section", () => {
   assert.equal(s.audience, "رجالي");   // فقط audience
 });
 
-test("runtime: size-only should NOT flip section if session already has one", () => {
-  resetSession("t_size_keep");
-  updateSession("t_size_keep", { section: "عطور" });
+test("runtime: size-only respects existing section and asks for audience (no forced flip)", () => {
+  resetSession("t3");
 
-  handleQuery("40", { conversationId: "t_size_keep" });
+  // ✅ قسم موجود مسبقًا
+  updateSession("t3", { section: "عطور" });
 
-  const s = getSession("t_size_keep");
+  // إرسال مقاس فقط
+  const r = handleQuery("40", { conversationId: "t3" });
+
+  // لازم يطلع سؤال استيضاح (مش يحوّل القسم)
+  assert.equal(r.ok, true);
+  assert.equal(r.found, false);
+  assert.ok(String(r.reply || "").includes("المقاس 40"));
+
+  const s = getSession("t3");
   assert.ok(s);
-  assert.equal(s.section, "عطور"); // لا تنقلب لأحذية
-  assert.equal(typeof s.size, "number"); // المقاس اتخزن
+
+  // القسم يظل كما هو
+  assert.equal(s.section, "عطور");
+
+  // وممنوع نخزن size كـ object
+  if (s.size != null) {
+    assert.equal(typeof s.size, "number");
+  }
 });
 
-test("runtime: size-only sets section to policy default ONLY when session has none", () => {
-  resetSession("t_size_default");
+test("runtime: size-only without session section asks for audience (does not assume section)", () => {
+  resetSession("t_size_only");
 
-  handleQuery("40", { conversationId: "t_size_default" });
+  const r = handleQuery("40", { conversationId: "t_size_only" });
 
-  const s = getSession("t_size_default");
+  assert.equal(r.ok, true);
+  assert.equal(r.found, false);
+  assert.ok(String(r.reply || "").includes("المقاس 40"));
+
+  const s = getSession("t_size_only");
   assert.ok(s);
-  assert.equal(s.section, "أحذية"); // default من policy/session
-  assert.equal(typeof s.size, "number");
-});
+
+  // بعد Gate الجديد: لا نفترض section
+  assert.equal(s.section ?? null, null);
+});;
 
 test("runtime: section change clears size + clears brand (when brand not in message)", () => {
   resetSession("t_clear");
