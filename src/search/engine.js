@@ -780,7 +780,21 @@ if (second && second.score >= top.score - tieGap) {
 export function handleQuery(q, ctx = {}) {
   const raw = normalizeText(q);
   const ql = raw.toLowerCase();
+// ✅ Size intent حتى لو كانت "نمرة 44" (مش بس رقم لوحده)
+const sizeInMsg = extractSizeQuery(normalizeArabic(raw).toLowerCase());
+const sizeOnlyLike =
+  !!sizeInMsg &&
+  !/بوت|حذاء|كندره|جزمه|صندل|عطر|ملابس|تيشيرت|بنطال|شنطه|حقيبه/i.test(raw) &&
+  !/[a-z]/i.test(raw); // ما في كود/ماركة انجليزي
 
+if (sizeOnlyLike) {
+  return {
+    ok: true,
+    found: false,
+    reply: `تمام 😊 المقاس ${sizeInMsg} بدك رجالي ولا ستاتي ولا ولادي/بناتي؟ وكمان بتحب السعر ضمن أي مدى تقريبًا؟`,
+    tags: ["lead_product", "needs_audience", "needs_budget", "size_only"]
+  };
+}
   // ✅ تحيات/افتتاحيات: لا تدخل بحث منتجات
   const t = ql.trim();
   if (/^(مرحبا|مرحبًا|اهلا|اهلا وسهلا|اهلين|السلام عليكم|سلام|هاي|hello|hi)$/i.test(t)) {
