@@ -919,6 +919,26 @@ if (convId && (modeNow === "deals" || modeNow === "budget")) {
    
   // اختيار رقم من قائمة (generic)
   const choiceNum = toLatinDigits_(raw).match(/^\s*([1-4])\s*$/)?.[1] || null;
+   // ✅ Gate: إذا الطلب "بوت + جمهور" بدون مقاس/ماركة → استيضاح بدل نتائج عامة
+const hasShoeWord = /بوت|حذاء|كندره|جزمه|سنيكر/i.test(raw);
+const audHint = extractGenderHint(normalizeArabic(raw).toLowerCase()); // male/female/kids_male/kids_female
+const hasSize = !!extractSizeQuery(normalizeArabic(raw).toLowerCase());
+const hasBrandish = /nike|adidas|reebok|puma|under\s*armour|saucony|hoka|skechers/i.test(raw) || /ريبوك|أديداس|اديداس|نايك|بوما|اندر|ساكوني|هوكا|سكيتشرز/.test(raw);
+
+if (hasShoeWord && audHint && !hasSize && !hasBrandish) {
+  const audLabel =
+    audHint === "male" ? "رجالي" :
+    audHint === "female" ? "ستاتي" :
+    audHint === "kids_male" ? "ولادي" :
+    audHint === "kids_female" ? "بناتي" : "—";
+
+  return {
+    ok: true,
+    found: false,
+    reply: `تمام 👌 بدك بوت ${audLabel}. عشان أطلعلك أفضل خيارات: شو المقاس؟ وبتفضّل ماركة معيّنة؟`,
+    tags: ["lead_product", "needs_size", "needs_brand", "hybrid_gate"]
+  };
+}
   if (choiceNum && convKey && choiceMemory?.has(convKey)) {
     const mem = choiceMemory.get(convKey);
     const picked = mem?.options?.[Number(choiceNum) - 1];
