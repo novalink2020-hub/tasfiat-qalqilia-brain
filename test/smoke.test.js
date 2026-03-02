@@ -318,3 +318,10 @@ test("runtime: audience reply after size prompt clears pending_pick", () => {
   assert.ok(s);
   assert.equal(s.flags?.pending_pick ?? null, null);
 });
+
+test("runtime: size phrase مثل (نمرة 44) triggers audience question (not product_none)", () => {
+  const r = handleQuery("نمرة 44", { conversationId: "t_size_phrase" });
+  assert.equal(r.ok, true);
+  assert.equal(r.found, false);
+  assert.ok(String(r.reply || "").includes("المقاس 44"));
+});
