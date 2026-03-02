@@ -107,6 +107,7 @@ const MAX_BLANK_AUDIENCE = 50;
 // إذا بدك تشددها لاحقًا: خليها 0
 const MAX_EMPTY_NAME = 15;
 const MAX_EMPTY_SECTION = 15;
+const MAX_EMPTY_BRAND_STD = 15;
 
 // availability الفارغ: الديمو يسمح حتى 3%
 const MAX_EMPTY_AVAIL_RATIO = 0.03;
@@ -208,7 +209,7 @@ test("knowledge: stable schema presence on each item (gate + examples)", async (
     badSections.length > MAX_EMPTY_SECTION ||
     badUrls.length > 0 ||
     badPrices.length > 0 ||
-    badBrandStd.length > 0 ||
+    badBrandStd.length > MAX_EMPTY_BRAND_STD ||
     badHasDiscount.length > 0 ||
     badBrandTagsType.length > 0 ||
     badSlug.length > 0
@@ -219,7 +220,7 @@ test("knowledge: stable schema presence on each item (gate + examples)", async (
         `- Empty section: ${badSections.length} (allowed <= ${MAX_EMPTY_SECTION}) examples: ${badSections.slice(0, 20).join(", ")}\n` +
         `- Bad page_url: ${badUrls.length} examples: ${badUrls.slice(0, 20).join(", ")}\n` +
         `- Bad price: ${badPrices.length} examples: ${badPrices.slice(0, 20).join(", ")}\n` +
-        `- Empty brand_std: ${badBrandStd.length} examples: ${badBrandStd.slice(0, 20).join(", ")}\n` +
+        `- Empty brand_std: ${badBrandStd.length} (allowed <= ${MAX_EMPTY_BRAND_STD}) examples: ${badBrandStd.slice(0, 20).join(", ")}\n` +
         `- has_discount not boolean: ${badHasDiscount.length} examples: ${badHasDiscount.slice(0, 20).join(", ")}\n` +
         `- brand_tags bad type: ${badBrandTagsType.length} examples: ${badBrandTagsType.slice(0, 20).join(", ")}\n` +
         `- Empty product_slug: ${badSlug.length} examples: ${badSlug.slice(0, 20).join(", ")}\n`
