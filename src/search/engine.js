@@ -1069,7 +1069,7 @@ if (convId && (modeNow === "deals" || modeNow === "budget")) {
   }
 
   // طلب عام لمنتج
-  const genericProductAsk = /بدّي|بدي|عايز|حذاء|كوتشي|جزمة|بوط|صندل|كروكس|شوز/.test(ql);
+  const genericProductAsk = /بدي اطلب|بدي|بدي منتج|بدي اوصي|بدي اشتري|اشتري|اطلب|اوصي|بدي تساعدني|تساعدني|عايز/.test(ql);
 
   if (genericProductAsk && raw.length <= 30) {
     const hasSize = !!extractSizeQuery(ql);
@@ -1079,18 +1079,72 @@ if (convId && (modeNow === "deals" || modeNow === "budget")) {
     const hasAudienceHint = !!extractAudienceHint(ql);
 
     if (!hasSize && !hasMoney && !hasBrandHint && !(hasSectionHint && hasAudienceHint)) {
+      // ✅ Gate: لازم يحدد القسم قبل ما نعرض منتجات عشوائية
+      if (convId) {
+        updateSession(convId, {
+          flags: { ...(session?.flags || {}), pending_pick: "choose_section" }
+        });
+      }
+
       return {
         ok: true,
         found: false,
-        reply: PROFILE.replies_shami.ask_more_for_products,
-        tags: ["lead_product", "needs_clarification"]
+        reply: "تمام 😊 قبل ما أطلعلك خيارات: بدك **أحذية** ولا **ملابس** ولا **عطور**؟ (اكتب واحدة منهم)",
+        tags: ["lead_product", "needs_clarification", "choose_section"]
       };
     }
   }
 
+     // ✅ استكمال Gate القسم: إذا الجلسة تنتظر choose_section
+  const pendingPickTop = session?.flags?.pending_pick || null;
+  if (pendingPickTop === "choose_section") {
+    const sec = extractSectionHint(ql);
+
+    if (sec && convId) {
+      updateSession(convId, {
+        section: sec,
+        flags: { ...(session?.flags || {}), pending_pick: null }
+      });
+
+      // بعد تحديد القسم: اسئلة حسب القسم
+      if (sec === "عطور") {
+        return {
+          ok: true,
+          found: false,
+          reply: "تمام 👌 بدك **عطور**. بدك **رجالي ولا ستاتي ولا ولادي/بناتي**؟ وبتفضّل **ماركة معيّنة**؟ وكم ميزانيتك تقريبًا؟",
+          tags: ["lead_product", "needs_audience", "needs_brand", "needs_budget", "choose_section_done"]
+        };
+      }
+
+      if (sec === "ملابس") {
+        return {
+          ok: true,
+          found: false,
+          reply: "تمام 👌 بدك **ملابس**. بدك **رجالي ولا ستاتي ولا ولادي/بناتي**؟ وشو **المقاس** (S/M/L أو رقم)؟ وإذا عندك **ماركة** مفضلة احكيلي.",
+          tags: ["lead_product", "needs_audience", "needs_size", "needs_brand", "choose_section_done"]
+        };
+      }
+
+      // أحذية
+      return {
+        ok: true,
+        found: false,
+        reply: "تمام 👌 بدك **أحذية**. بدك **رجالي ولا ستاتي ولا ولادي/بناتي**؟ وكمان شو **المقاس**؟ وإذا بتحب **ماركة** معيّنة احكيلي.",
+        tags: ["lead_product", "needs_audience", "needs_size", "needs_brand", "choose_section_done"]
+      };
+    }
+
+    // إذا ما حدد القسم بوضوح
+    return {
+      ok: true,
+      found: false,
+      reply: "بس للتأكيد 😊 اكتب واحدة: **أحذية** أو **ملابس** أو **عطور**.",
+      tags: ["lead_product", "needs_clarification", "choose_section"]
+    };
+  }
   // المقاس فقط (✅ ثبّت سياق الأحذية داخل الجلسة)
   const askedSize = extractSizeQuery(ql);
-if (askedSize && isOnlySizeQuery(raw)) {
+if (askedSize && (isOnlySizeQuery(raw) || /^\s*(?:نمرة|نمره|مقاس|قياس|رقم)\s*[:\-]?\s*\d{2,3}(?:\.\d)?\s*$/i.test(toLatinDigits_(normalizeArabic(raw))))) {
   const n = Number(askedSize);
 
   if (convId && Number.isFinite(n)) {
@@ -1147,8 +1201,12 @@ if (convId && msgAudienceOnly && pendingPick === "audience_for_size") {
 
 // ✅ لا تورّث الماركة إلا إذا المستخدم ذكرها صراحة
 // ✅ ولا تورّثها إذا الرسالة “مقاس/رجالي/خصومات” لأنها قيود نية مش طلب ماركة
+// ✅ اسمح بتوريث الماركة إذا كنا فعليًا بمرحلة audience_for_size
 const allowSessionBrand =
-  !msgSection && !msgHasSize && !msgAudienceOnly && !msgDealsOnly;
+  !msgSection &&
+  !msgDealsOnly &&
+  !msgHasSize &&
+  (!msgAudienceOnly || pendingPick === "audience_for_size");
 
 const effectiveBrandKey =
   brandInfo?.brandKey ||
