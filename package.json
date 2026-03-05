@@ -1,0 +1,15 @@
+{
+  "name": "tasfiat-qalqilia-brain",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+"scripts": {
+  "start": "node scripts/sync-places.js && node src/server.js",
+  "test": "node --test"
+},
+"dependencies": {
+  "express": "^4.19.2",
+  "cors": "^2.8.5"
+}
+}
