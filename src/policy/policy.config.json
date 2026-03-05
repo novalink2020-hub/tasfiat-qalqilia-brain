@@ -1,0 +1,45 @@
+{
+  "version": "policy-v1",
+  "locale": "ar-ps",
+
+  "intents": {
+    "deals": {
+      "keywords": ["خصم", "خصومات", "تنزيلات", "عروض", "تخفيض", "سيل", "sale", "off"]
+    },
+
+    "budget": {
+      "keywords": [
+        "قديش", "بكم", "سعره", "كم حقه", "كم سعره",
+        "بحدود", "حوالي", "تقريبا", "على قدي", "على قد الايد",
+        "راعينا", "ارخص", "رخيص","مش غالي", "مراعاة", "معقول",
+        "ما بدي اغلى من", "مش اكثر من", "حده"
+      ]
+    },
+
+    "premium": {
+      "keywords": ["افخم", "احسن", "احسن نوع", "ممتاز", "اصلي", "براند", "مش مهم السعر", "ما بفرق السعر"]
+    }
+  },
+
+  "session": {
+    "assume_section_for_size": "أحذية",
+
+    "reset_on_section_change": {
+      "clear_size": true,
+      "clear_brand_if_not_in_message": true
+    },
+
+    "brand_inheritance": {
+      "enabled": true,
+      "disable_if_message_has_explicit_section": true
+    }
+  },
+
+"ranking": {
+  "min_score_default": 24,
+  "min_score_brandish": 12,
+  "min_score_brand_filtered": 8,
+  "min_score_when_size_present": 12,
+  "tie_gap": 6
+}
+}
