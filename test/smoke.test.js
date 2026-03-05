@@ -318,3 +318,30 @@ test("runtime: audience reply after size prompt clears pending_pick", () => {
   assert.ok(s);
   assert.equal(s.flags?.pending_pick ?? null, null);
 });
+
+test("runtime: (بدّي منتج) asks for section first", () => {
+  resetSession("t_sec_gate");
+  const r = handleQuery("بدّي منتج", { conversationId: "t_sec_gate" });
+  assert.equal(r.ok, true);
+  assert.equal(r.found, false);
+  const txt = String(r.reply || "");
+  assert.ok(txt.includes("أحذية") && txt.includes("ملابس") && txt.includes("عطور"));
+});
+
+test("runtime: choose_section blocks search until section is provided", () => {
+  resetSession("t_sec_gate2");
+  handleQuery("بدّي منتج", { conversationId: "t_sec_gate2" });
+
+  const r = handleQuery("رجالي", { conversationId: "t_sec_gate2" });
+  assert.equal(r.ok, true);
+  assert.equal(r.found, false);
+  assert.ok(String(r.reply || "").includes("أحذية") || String(r.reply || "").includes("بس للتأكيد"));
+});
+
+test("runtime: size phrase مثل (نمرة 44) triggers size flow", () => {
+  resetSession("t_size_phrase");
+  const r = handleQuery("نمرة 44", { conversationId: "t_size_phrase" });
+  assert.equal(r.ok, true);
+  assert.equal(r.found, false);
+  assert.ok(String(r.reply || "").includes("المقاس 44"));
+});
