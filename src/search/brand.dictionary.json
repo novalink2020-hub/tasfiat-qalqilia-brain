@@ -1,0 +1,212 @@
+{
+  "meta": {
+    "version": "1.0.0",
+    "purpose": "Brand normalization + Arabic aliases + common typos (Tasfiat Qalqilia)",
+    "rules": [
+      "brand_std is the ONLY canonical output",
+      "aliases should include Arabic spellings + common typos + common punctuation variants",
+      "also include 'broken' brand_std tokens found in knowledge (LE/ON/STEVE/UNDER/SKECHER) mapped to proper canonical"
+    ]
+  },
+  "brands": [
+    {
+      "brand_std": "NIKE",
+      "en": "Nike",
+      "ar": "نايك",
+      "aliases": ["nike", "naik", "نايك", "نایک", "نايكي", "نايكه", "نيك"]
+    },
+    {
+      "brand_std": "ADIDAS",
+      "en": "Adidas",
+      "ar": "أديداس",
+      "aliases": ["adidas", "أديداس", "اديداس", "أدياداس", "اديادس", "ادداس", "اديدس"]
+    },
+    {
+      "brand_std": "REEBOK",
+      "en": "Reebok",
+      "ar": "ريبوك",
+      "aliases": ["reebok", "ريبوك", "ريبك", "ريبوكك", "ربوك", "ريبـوك"]
+    },
+    {
+      "brand_std": "UNDER ARMOUR",
+      "en": "Under Armour",
+      "ar": "اندر ارمور",
+      "aliases": [
+        "under armour",
+        "underarmour",
+        "under-armour",
+        "under armor",
+        "under-armor",
+        "ua",
+        "اندر ارمور",
+        "أندر ارمور",
+        "اندرآرمور",
+        "اندرا ارمور",
+        "اندر ارمر",
+        "أندر آرمر",
+        "اندرامور",
+        "اندرا رمور",
+        "UNDER",
+        "Under-Armour",
+        "UnderArmour"
+      ],
+      "normalize_from_knowledge_brand_std": ["UNDER"]
+    },
+    {
+      "brand_std": "SKECHERS",
+      "en": "Skechers",
+      "ar": "سكتشرز",
+      "aliases": [
+        "skechers",
+        "skecher",
+        "sketchers",
+        "سكتشرز",
+        "سكيتشرز",
+        "سكيتشيرز",
+        "سكتشيرز",
+        "سكتشرس",
+        "سكتشر",
+        "سكيشرز",
+        "سكيتشرز!!!",
+        "SKECHER"
+      ],
+      "normalize_from_knowledge_brand_std": ["SKECHER"]
+    },
+    {
+      "brand_std": "PUMA",
+      "en": "Puma",
+      "ar": "بوما",
+      "aliases": ["puma", "بوما", "بومه", "بوماا", "بومة"]
+    },
+    {
+      "brand_std": "SALOMON",
+      "en": "Salomon",
+      "ar": "سالومون",
+      "aliases": ["salomon", "سالومون", "سالمون", "سالامون", "سلومون", "سولومون"]
+    },
+    {
+      "brand_std": "STEVE MADDEN",
+      "en": "Steve Madden",
+      "ar": "ستيف مادن",
+      "aliases": ["steve madden", "stevemadden", "steve-madden", "ستيف مادن", "ستيف مادين", "ستيفمادن", "STEVE"],
+      "normalize_from_knowledge_brand_std": ["STEVE"]
+    },
+    {
+      "brand_std": "AETREX",
+      "en": "Aetrex",
+      "ar": "ايتريكس",
+      "aliases": ["aetrex", "ايتريكس", "ايتركس", "ايتريكس"]
+    },
+    {
+      "brand_std": "MAGNUM",
+      "en": "Magnum",
+      "ar": "ماغنوم",
+      "aliases": ["magnum", "ماغنوم", "ماجنوم", "مجنوم"]
+    },
+    {
+      "brand_std": "BROOKS",
+      "en": "Brooks",
+      "ar": "بروكس",
+      "aliases": ["brooks", "بروكس", "برووكس", "بركس"]
+    },
+    {
+      "brand_std": "CROCS",
+      "en": "Crocs",
+      "ar": "كروكس",
+      "aliases": ["crocs", "كروكس", "كروس", "كروكز", "كروكسس", "كروكسّ"]
+    },
+    {
+      "brand_std": "ASICS",
+      "en": "ASICS",
+      "ar": "اسكس",
+      "aliases": ["asics", "اسكس", "أسيكس", "اسيكس", "اسِكس", "أسكس"]
+    },
+    {
+      "brand_std": "SAUCONY",
+      "en": "Saucony",
+      "ar": "ساكوني",
+      "aliases": ["saucony", "ساكوني", "سوكوني", "ساوكوني", "ساكونيّ"]
+    },
+    {
+      "brand_std": "MERRELL",
+      "en": "Merrell",
+      "ar": "ميريل",
+      "aliases": ["merrell", "ميريل", "مريل", "ميرل", "ميريلل"]
+    },
+    {
+      "brand_std": "HOKA",
+      "en": "Hoka",
+      "ar": "هوكا",
+      "aliases": ["hoka", "هوكا", "هوكة", "هواكا", "هوكاا"]
+    },
+    {
+      "brand_std": "MIZUNO",
+      "en": "Mizuno",
+      "ar": "ميزونو",
+      "aliases": ["mizuno", "ميزونو", "ميزنو", "ميزونوو", "مزيون"]
+    },
+    {
+      "brand_std": "NAUTICA",
+      "en": "Nautica",
+      "ar": "نوتيكا",
+      "aliases": ["nautica", "نوتيكا", "نوتيكاا", "نوتيكا "]
+    },
+    {
+      "brand_std": "DIADORA",
+      "en": "Diadora",
+      "ar": "ديادورا",
+      "aliases": ["diadora", "ديادورا", "ديادوره", "ديادوراا"]
+    },
+    {
+      "brand_std": "LE COQ",
+      "en": "Le Coq Sportif",
+      "ar": "لي كوك",
+      "aliases": ["le coq", "lecoq", "le-coq", "le coq sportif", "لي كوك", "ليكوك", "ليكووك", "لو كوك", "LE"],
+      "normalize_from_knowledge_brand_std": ["LE"]
+    },
+    {
+      "brand_std": "JOMA",
+      "en": "Joma",
+      "ar": "جوما",
+      "aliases": ["joma", "جوما", "جومة", "جوماا", "جومااا", "جومه", "جما"]
+    },
+    {
+      "brand_std": "ON CLOUD",
+      "en": "On Cloud",
+      "ar": "أون كلاود",
+      "aliases": ["on cloud", "oncloud", "on-cloud", "أون كلاود", "اون كلاود", "اونكلود", "أونكلود", "ان كلاود", "ON"],
+      "normalize_from_knowledge_brand_std": ["ON"]
+    },
+    {
+      "brand_std": "TIMBERLAND",
+      "en": "Timberland",
+      "ar": "تيمبرلاند",
+      "aliases": ["timberland", "تيمبرلاند", "تمبرلاند", "تيمبر لاند", "تمبر لاند", "تيمبرلاندد"]
+    },
+
+    {
+      "brand_std": "ARMAF",
+      "en": "Armaf",
+      "ar": "ارماف",
+      "aliases": ["armaf", "ارماف", "أرماف", "ارمـاف"]
+    },
+    {
+      "brand_std": "ASSAF",
+      "en": "Assaf",
+      "ar": "أساف",
+      "aliases": ["assaf", "أساف", "اساف", "عساف", "عصاف", "اسافف"]
+    },
+    {
+      "brand_std": "KLIN",
+      "en": "Klin",
+      "ar": "كلين",
+      "aliases": ["klin", "كلين", "كلن", "كلينن"]
+    },
+    {
+      "brand_std": "LAVERNE",
+      "en": "Laverne",
+      "ar": "لافيرن",
+      "aliases": ["laverne", "لافيرن", "لافرن", "لافيرن "]
+    }
+  ]
+}
