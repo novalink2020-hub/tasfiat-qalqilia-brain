@@ -66,6 +66,13 @@ function baseSession_(convId, ttlMs) {
       cross_sell_shown: false
     },
 
+    // flow state machine
+    flow: {
+      active: null, // null | "menu" | "products" | "inquiries"
+      step: null,   // null | "welcome" | "section" | "audience" | "size" | "brand_optin" | "brand_value" | "budget_optin" | "budget_value" | "topic"
+      updated_at: nowMs()
+    },
+
     // misc flags
     flags: {
       // example toggles you might use later
@@ -122,6 +129,13 @@ if ("brand_key" in patch) out.brand_key = patch.brand_key ? String(patch.brand_k
     if ("cross_sell_shown" in pg) out.purchase_gate.cross_sell_shown = !!pg.cross_sell_shown;
   }
 
+  if (patch.flow != null && typeof patch.flow === "object") {
+    out.flow = {};
+    if ("active" in patch.flow) out.flow.active = patch.flow.active ? String(patch.flow.active) : null;
+    if ("step" in patch.flow) out.flow.step = patch.flow.step ? String(patch.flow.step) : null;
+    if ("updated_at" in patch.flow) out.flow.updated_at = Number(patch.flow.updated_at) || nowMs();
+  }
+
   if (patch.flags != null && typeof patch.flags === "object") {
     out.flags = { ...patch.flags };
   }
@@ -135,6 +149,9 @@ function deepMerge_(base, patch) {
 
   if (patch.purchase_gate) {
     out.purchase_gate = { ...(base.purchase_gate || {}), ...(patch.purchase_gate || {}) };
+  }
+  if (patch.flow) {
+    out.flow = { ...(base.flow || {}), ...(patch.flow || {}) };
   }
   if (patch.flags) {
     out.flags = { ...(base.flags || {}), ...(patch.flags || {}) };
@@ -189,7 +206,7 @@ export function updateSession(convId, patch = {}) {
 
 /**
  * Clear specific keys (soft reset parts of session).
- * keys: array of strings: ["section","audience","size","brand","budget","intent","purchase_gate","flags"]
+ * keys: array of strings: ["section","audience","size","brand","budget","intent","purchase_gate","flow","flags"]
  */
 export function clearSessionKeys(convId, keys = []) {
   cleanupExpired_();
@@ -219,6 +236,10 @@ export function clearSessionKeys(convId, keys = []) {
 
   if (set.has("purchase_gate")) {
     s.purchase_gate = { asked_at: null, confirmed: null, last_choice: null, cross_sell_shown: false };
+  }
+
+  if (set.has("flow")) {
+    s.flow = { active: null, step: null, updated_at: nowMs() };
   }
 
   if (set.has("flags")) {
