@@ -7,6 +7,7 @@ import { getSession, updateSession } from "./state/sessionStore.js";
 import { routeMessage } from "./router/router.js";
 import { loadKnowledge, getKnowledge } from "./knowledge/loader.js";
 import { handleQuery } from "./search/engine.js";
+import { buildChannelContextFromWebhook, renderTemplate } from "./ui/renderer.js";
 import { tryLockCartFollowup, setCartFollowupTimeoutId, unlockCartFollowup } from "./chatwoot/cartFollowupLock.js";
 import {
   chatwootCreateMessage,
@@ -258,6 +259,8 @@ app.post("/chatwoot/webhook", async (req, res) => {
     if (!getKnowledge()) await loadKnowledge();
 
     const session = getSession(String(conversationId));
+    const channel = buildChannelContextFromWebhook(body);
+
     const route = routeMessage({
       session,
       text: content,
@@ -268,7 +271,22 @@ app.post("/chatwoot/webhook", async (req, res) => {
       )
     });
 
-    updateSession(String(conversationId), { flow: route.flow, last_user_text: content });
+    updateSession(String(conversationId), {
+      flow: route.flow,
+      last_user_text: content
+    });
+
+    if (route.lane === "menu") {
+      const reply = renderTemplate("WELCOME", channel);
+      await chatwootCreateMessage(conversationId, reply);
+      return res.json({
+        ok: true,
+        replied: true,
+        flow: route.flow,
+        lane: route.lane,
+        ui_select: channel?.capabilities?.ui_select === true
+      });
+    }
 
     const out = handleQuery(content, {
       conversationId: String(conversationId),
