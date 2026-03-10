@@ -3,6 +3,8 @@ import cors from "cors";
 
 import { CONFIG } from "./config.js";
 import { seenMessageIds, choiceMemory } from "./state/memoryStore.js";
+import { getSession, updateSession } from "./state/sessionStore.js";
+import { routeMessage } from "./router/router.js";
 import { loadKnowledge, getKnowledge } from "./knowledge/loader.js";
 import { handleQuery } from "./search/engine.js";
 import { tryLockCartFollowup, setCartFollowupTimeoutId, unlockCartFollowup } from "./chatwoot/cartFollowupLock.js";
@@ -254,6 +256,19 @@ app.post("/chatwoot/webhook", async (req, res) => {
     }
 
     if (!getKnowledge()) await loadKnowledge();
+
+    const session = getSession(String(conversationId));
+    const route = routeMessage({
+      session,
+      text: content,
+      hasMedia: !!(
+        body?.attachments?.length ||
+        body?.content_attributes?.attachments?.length ||
+        body?.message_type === "incoming" && body?.content_type && body?.content_type !== "text"
+      )
+    });
+
+    updateSession(String(conversationId), { flow: route.flow, last_user_text: content });
 
     const out = handleQuery(content, {
       conversationId: String(conversationId),
