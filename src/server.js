@@ -62,6 +62,23 @@ function resolveConversationIdFromPayload(body) {
   );
 }
 
+function resolveIncomingTextFromPayload(body) {
+  const candidates = [
+    body?.content,
+    body?.message?.content,
+    body?.messages?.[0]?.content,
+    body?.messages?.[0]?.text,
+    body?.content_attributes?.submitted_values?.message,
+    body?.additional_attributes?.message
+  ];
+
+  for (const v of candidates) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+
+  return "";
+}
+
 async function hasLabel(convId, label) {
   const conv = await chatwootGetConversation(String(convId));
   const labels = Array.isArray(conv?.labels) ? conv.labels : [];
@@ -228,8 +245,8 @@ app.post("/chatwoot/webhook", async (req, res) => {
     const event = body.event;
     const messageType = body.message_type; // incoming / outgoing
     const messageId = body.id;
-    const content = body.content || "";
-    const conversationId = body.conversation?.id;
+    const content = resolveIncomingTextFromPayload(body);
+    const conversationId = resolveConversationIdFromPayload(body);
 
     if (event !== "message_created") return res.json({ ok: true, ignored: "event" });
     if (messageType !== "incoming") return res.json({ ok: true, ignored: "non_incoming" });
