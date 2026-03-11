@@ -3,7 +3,7 @@ import cors from "cors";
 
 import { CONFIG } from "./config.js";
 import { seenMessageIds, choiceMemory } from "./state/memoryStore.js";
-import { getSession, updateSession } from "./state/sessionStore.js";
+import { getSession, updateSession, clearSessionKeys } from "./state/sessionStore.js";
 import { routeMessage } from "./router/router.js";
 import { loadKnowledge, getKnowledge } from "./knowledge/loader.js";
 import { handleQuery } from "./search/engine.js";
@@ -84,6 +84,17 @@ async function hasLabel(convId, label) {
   const labels = Array.isArray(conv?.labels) ? conv.labels : [];
   return labels.includes(label);
 }
+function clearLegacySelectionState(conversationId) {
+  const convKey = String(conversationId || "");
+  if (!convKey) return;
+
+  if (choiceMemory?.has(convKey)) {
+    choiceMemory.delete(convKey);
+  }
+
+  clearSessionKeys(convKey, ["flags"]);
+}
+
 
 // ===== ROUTES =====
 app.get("/", (req, res) => {
@@ -294,40 +305,62 @@ app.post("/chatwoot/webhook", async (req, res) => {
     });
 
     if (route.lane === "menu") {
+      clearLegacySelectionState(conversationId);
+
+      updateSession(String(conversationId), {
+        flow: { active: "menu", step: "welcome", updated_at: Date.now() },
+        last_user_text: content
+      });
+
       const reply = renderTemplate("WELCOME", channel);
       await chatwootCreateMessage(conversationId, reply);
       return res.json({
         ok: true,
         replied: true,
-        flow: route.flow,
+        flow: { active: "menu", step: "welcome" },
         lane: route.lane,
         ui_select: channel?.capabilities?.ui_select === true
       });
     }
 
     if (route.lane === "products_entry") {
+      clearLegacySelectionState(conversationId);
+
+      updateSession(String(conversationId), {
+        flow: { active: "products", step: "section", updated_at: Date.now() },
+        last_user_text: content
+      });
+
       const reply = renderTemplate("PRODUCTS_ENTRY", channel);
       await chatwootCreateMessage(conversationId, reply);
       return res.json({
         ok: true,
         replied: true,
-        flow: route.flow,
+        flow: { active: "products", step: "section" },
         lane: route.lane,
         ui_select: channel?.capabilities?.ui_select === true
       });
     }
 
     if (route.lane === "inquiries_entry") {
+      clearLegacySelectionState(conversationId);
+
+      updateSession(String(conversationId), {
+        flow: { active: "inquiries", step: "topic", updated_at: Date.now() },
+        last_user_text: content
+      });
+
       const reply = renderTemplate("INQUIRIES_ENTRY", channel);
       await chatwootCreateMessage(conversationId, reply);
       return res.json({
         ok: true,
         replied: true,
-        flow: route.flow,
+        flow: { active: "inquiries", step: "topic" },
         lane: route.lane,
         ui_select: channel?.capabilities?.ui_select === true
       });
     }
+
 
     const out = handleQuery(content, {
       conversationId: String(conversationId),
