@@ -305,6 +305,30 @@ app.post("/chatwoot/webhook", async (req, res) => {
       });
     }
 
+    if (route.lane === "products_entry") {
+      const reply = renderTemplate("PRODUCTS_ENTRY", channel);
+      await chatwootCreateMessage(conversationId, reply);
+      return res.json({
+        ok: true,
+        replied: true,
+        flow: route.flow,
+        lane: route.lane,
+        ui_select: channel?.capabilities?.ui_select === true
+      });
+    }
+
+    if (route.lane === "inquiries_entry") {
+      const reply = renderTemplate("INQUIRIES_ENTRY", channel);
+      await chatwootCreateMessage(conversationId, reply);
+      return res.json({
+        ok: true,
+        replied: true,
+        flow: route.flow,
+        lane: route.lane,
+        ui_select: channel?.capabilities?.ui_select === true
+      });
+    }
+
     const out = handleQuery(content, {
       conversationId: String(conversationId),
       choiceMemory
