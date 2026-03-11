@@ -62,6 +62,19 @@ function resolveConversationIdFromPayload(body) {
   );
 }
 
+function stripHtmlInput(s) {
+  return String(s || "")
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function resolveIncomingTextFromPayload(body) {
   const candidates = [
     body?.content,
@@ -73,7 +86,9 @@ function resolveIncomingTextFromPayload(body) {
   ];
 
   for (const v of candidates) {
-    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "string" && v.trim()) {
+      return stripHtmlInput(v);
+    }
   }
 
   return "";
