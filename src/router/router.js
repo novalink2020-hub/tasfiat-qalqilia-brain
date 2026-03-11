@@ -33,6 +33,20 @@ function nextFlow(active, step) {
   };
 }
 
+function nextProductStep(currentFlow) {
+  if (currentFlow?.active === "products" && currentFlow?.step && currentFlow.step !== "welcome") {
+    return currentFlow.step;
+  }
+  return "section";
+}
+
+function nextInquiryStep(currentFlow) {
+  if (currentFlow?.active === "inquiries" && currentFlow?.step && currentFlow.step !== "welcome") {
+    return currentFlow.step;
+  }
+  return "topic";
+}
+
 export function routeMessage({ session, text, hasMedia = false }) {
   const currentFlow = session?.flow || { active: null, step: null };
   const t = normalizeText(text);
@@ -45,7 +59,6 @@ export function routeMessage({ session, text, hasMedia = false }) {
     };
   }
 
-  // 0 = رجوع للقائمة في كل شيء (حاليًا قبل cross-sell)
   if (t === "0") {
     return {
       lane: "menu",
@@ -54,7 +67,6 @@ export function routeMessage({ session, text, hasMedia = false }) {
     };
   }
 
-  // التحية = قائمة رئيسية
   if (isGreeting(t)) {
     return {
       lane: "menu",
@@ -63,11 +75,10 @@ export function routeMessage({ session, text, hasMedia = false }) {
     };
   }
 
-  // الأرقام 1/2 في القائمة الرئيسية فقط
+  // الأرقام 1/2 كقائمة رئيسية فقط إذا كنا فعلاً في القائمة الرئيسية
   if (
-    (currentFlow.active === null) ||
-    (currentFlow.active === "menu") ||
-    (currentFlow.step === "welcome")
+    currentFlow.active === null ||
+    (currentFlow.active === "menu" && currentFlow.step === "welcome")
   ) {
     if (t === "1") {
       return {
@@ -86,39 +97,35 @@ export function routeMessage({ session, text, hasMedia = false }) {
     }
   }
 
-  // نص حر واضح لمنتج
   if (isProductsHint(t)) {
     return {
       lane: "engine_products_text",
       reason: "free_text_product",
-      flow: nextFlow("products", currentFlow.step || "section")
+      flow: nextFlow("products", nextProductStep(currentFlow))
     };
   }
 
-  // نص حر واضح لاستعلام
   if (isInquiriesHint(t)) {
     return {
       lane: "engine_inquiries_text",
       reason: "free_text_inquiry",
-      flow: nextFlow("inquiries", currentFlow.step || "topic")
+      flow: nextFlow("inquiries", nextInquiryStep(currentFlow))
     };
   }
 
-  // إذا كنا أصلًا داخل مسار منتجات، لا تعيد تفسير 1/2 كقائمة رئيسية
   if (currentFlow.active === "products" && currentFlow.step) {
     return {
       lane: "engine_products_text",
       reason: "resume_products_flow",
-      flow: nextFlow("products", currentFlow.step)
+      flow: nextFlow("products", nextProductStep(currentFlow))
     };
   }
 
-  // إذا كنا أصلًا داخل مسار استعلامات، لا تعيد تفسير 1/2 كقائمة رئيسية
   if (currentFlow.active === "inquiries" && currentFlow.step) {
     return {
       lane: "engine_inquiries_text",
       reason: "resume_inquiries_flow",
-      flow: nextFlow("inquiries", currentFlow.step)
+      flow: nextFlow("inquiries", nextInquiryStep(currentFlow))
     };
   }
 
