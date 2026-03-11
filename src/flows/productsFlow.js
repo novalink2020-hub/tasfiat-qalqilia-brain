@@ -60,11 +60,20 @@ function extractSize(text, section = null) {
 
   if (section === "عطور") return null;
 
-  const alpha = t.match(/\b(XXL|XL|L|M|S)\b/i);
-  if (alpha) return String(alpha[1]).toUpperCase();
+  if (section === "أحذية") {
+    const numeric = t.match(/(?:نمرة|نمره|مقاس|قياس|رقم)?\s*[:\-]?\s*(\d{2,3}(?:\.\d)?)/i);
+    if (numeric?.[1]) return String(numeric[1]);
+    return null;
+  }
 
-  const numeric = t.match(/(?:نمرة|نمره|مقاس|قياس|رقم)?\s*[:\-]?\s*(\d{2,3}(?:\.\d)?)/i);
-  if (numeric?.[1]) return String(numeric[1]);
+  if (section === "ملابس") {
+    const alpha = t.match(/\b(XXL|XL|L|M|S)\b/i);
+    if (alpha) return String(alpha[1]).toUpperCase();
+
+    const numeric = t.match(/(?:نمرة|نمره|مقاس|قياس|رقم)?\s*[:\-]?\s*(\d{2,3}(?:\.\d)?)/i);
+    if (numeric?.[1]) return String(numeric[1]);
+    return null;
+  }
 
   return null;
 }
@@ -337,21 +346,7 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
 
   // 5) الخطوة الحالية = brand_optin
   if (step === "brand_optin") {
-    if (isYes(raw)) {
-      updateSession(conversationId, {
-        ...patch,
-        flow: { active: "products", step: "brand_value", updated_at: Date.now() }
-      });
-
-      return {
-        type: "reply",
-        reply: askBrandValue(),
-        patch: {
-          ...patch,
-          flow: { active: "products", step: "brand_value", updated_at: Date.now() }
-        }
-      };
-    }
+    const normalized = normalizeText(raw);
 
     if (isNo(raw)) {
       updateSession(conversationId, {
@@ -367,6 +362,44 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
           ...patch,
           brand_std: null,
           flow: { active: "products", step: "budget_optin", updated_at: Date.now() }
+        }
+      };
+    }
+
+    // نعم + اسم ماركة في نفس الرسالة
+    const yesWithBrand = normalized.match(/^(?:نعم|ايوه|أيوه|ايوا|اه|أه|اكيد|أكيد)\s+(.+)$/i);
+    if (yesWithBrand?.[1]) {
+      const brandValue = yesWithBrand[1].trim();
+
+      updateSession(conversationId, {
+        ...patch,
+        brand_std: brandValue,
+        flow: { active: "products", step: "budget_optin", updated_at: Date.now() }
+      });
+
+      return {
+        type: "reply",
+        reply: askBudgetOptIn(),
+        patch: {
+          ...patch,
+          brand_std: brandValue,
+          flow: { active: "products", step: "budget_optin", updated_at: Date.now() }
+        }
+      };
+    }
+
+    if (isYes(raw)) {
+      updateSession(conversationId, {
+        ...patch,
+        flow: { active: "products", step: "brand_value", updated_at: Date.now() }
+      });
+
+      return {
+        type: "reply",
+        reply: askBrandValue(),
+        patch: {
+          ...patch,
+          flow: { active: "products", step: "brand_value", updated_at: Date.now() }
         }
       };
     }
