@@ -33,8 +33,8 @@ const TEMPLATES = {
 سعداء لاختياركم تصفيات قلقيلية—خلّيني أساعدك تلاقي أفضل خيار بسرعة.
 اختر من القائمة:
 
-1) 🛍️ طلب منتج
-2) ℹ️ استعلامات`,
+🛍️ طلب منتج
+ℹ️ استعلامات`,
 
   WELCOME_FALLBACK_NUMBERS:
 `أهلًا وسهلًا 😊🌟
@@ -46,13 +46,58 @@ const TEMPLATES = {
 
 اكتب رقم فقط (مثال: 1).`,
 
+  PRODUCTS_ENTRY_UI:
+`تمام 😊 خلّينا نبدأ طلب المنتج.
+
+اختر القسم:
+🧴 عطور
+👟 أحذية
+👕 ملابس
+
+إذا بدك ترجع للقائمة اكتب: 0`,
+
+  PRODUCTS_ENTRY_NUMBERS:
+`تمام 😊 خلّينا نبدأ طلب المنتج.
+
+اكتب رقم:
+1) 🧴 عطور
+2) 👟 أحذية
+3) 👕 ملابس
+
+إذا بدك ترجع للقائمة اكتب: 0`,
+
+  INQUIRIES_ENTRY_UI:
+`تمام 😊 اختر نوع الاستعلام:
+
+حالة الطلب/الطرد
+التوصيل ورسوم الشحن
+الفروع ومواقعها
+تبديل/إرجاع
+كيف يمكن الطلب من خلال الموقع؟
+التحدث مع موظف
+
+إذا بدك ترجع للقائمة اكتب: 0`,
+
+  INQUIRIES_ENTRY_NUMBERS:
+`تمام 😊 اختر نوع الاستعلام:
+
+اكتب رقم:
+1) حالة الطلب/الطرد
+2) التوصيل ورسوم الشحن
+3) الفروع ومواقعها
+4) تبديل/إرجاع
+5) كيف يمكن الطلب من خلال الموقع؟
+6) التحدث مع موظف
+
+إذا بدك ترجع للقائمة اكتب: 0`,
+
   BACK_TO_MENU: `إذا بدك ترجع للقائمة اكتب: 0`,
 
   LIKE_CONFIRM_UI:
 `تمام 😊 هل أعجبك الخيار اللي اخترته؟
 
-1) ✅ نعم
-2) ❌ لا`,
+✅ نعم
+❌ لا`,
 
   LIKE_CONFIRM_NUMBERS:
 `تمام 😊 هل أعجبك الخيار اللي اخترته؟
@@ -68,10 +113,10 @@ const TEMPLATES = {
 
 اختر قسم إضافي 👨‍👩‍👧‍👦 :
 
-1) 🧴 عطور
-2) 👟 أحذية
-3) 👕 ملابس
-0) لا، شكراً`,
+🧴 عطور
+👟 أحذية
+👕 ملابس
+0️⃣ لا، شكراً`,
 
   CROSS_SELL_NUMBERS:
 `حلو! 😊
@@ -101,6 +146,14 @@ export function renderTemplate(name, channel = {}) {
 
   if (name === "WELCOME") {
     return uiSelect ? TEMPLATES.WELCOME_UI_SELECTBOX : TEMPLATES.WELCOME_FALLBACK_NUMBERS;
+  }
+
+  if (name === "PRODUCTS_ENTRY") {
+    return uiSelect ? TEMPLATES.PRODUCTS_ENTRY_UI : TEMPLATES.PRODUCTS_ENTRY_NUMBERS;
+  }
+
+  if (name === "INQUIRIES_ENTRY") {
+    return uiSelect ? TEMPLATES.INQUIRIES_ENTRY_UI : TEMPLATES.INQUIRIES_ENTRY_NUMBERS;
   }
 
   if (name === "LIKE_CONFIRM") {
