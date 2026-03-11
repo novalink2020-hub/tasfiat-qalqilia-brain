@@ -25,20 +25,6 @@ function isInquiriesHint(text) {
   return /(^|\s)(استعلام|استفسار|التوصيل|الشحن|رسوم الشحن|الفروع|وين فروعكم|فرعكم|مواقعها|تبديل|إرجاع|ارجاع|استبدال|كيف اطلب|كيف أطلب|موظف|خدمة العملاء|حالة الطلب|وين طلبي|تتبع|الطرد|سياسة الخصوصية|سياسة)(\s|$)/.test(t);
 }
 
-function detectMainMenuChoice(text) {
-  const t = normalizeText(text);
-
-  if (t === "0") return "menu";
-  if (t === "1") return "products";
-  if (t === "2") return "inquiries";
-
-  if (isGreeting(t)) return "menu";
-  if (isProductsHint(t)) return "products_text";
-  if (isInquiriesHint(t)) return "inquiries_text";
-
-  return null;
-}
-
 function nextFlow(active, step) {
   return {
     active: active || null,
@@ -49,7 +35,7 @@ function nextFlow(active, step) {
 
 export function routeMessage({ session, text, hasMedia = false }) {
   const currentFlow = session?.flow || { active: null, step: null };
-  const menuChoice = detectMainMenuChoice(text);
+  const t = normalizeText(text);
 
   if (hasMedia) {
     return {
@@ -59,34 +45,49 @@ export function routeMessage({ session, text, hasMedia = false }) {
     };
   }
 
-  if (menuChoice === "menu") {
+  // 0 = رجوع للقائمة في كل شيء (حاليًا قبل cross-sell)
+  if (t === "0") {
     return {
       lane: "menu",
-      reason: "back_or_greeting",
+      reason: "back_to_menu",
       flow: nextFlow("menu", "welcome")
     };
   }
 
-  // زر/رقم 1 => دخول موجّه لمسار المنتجات
-  if (menuChoice === "products") {
+  // التحية = قائمة رئيسية
+  if (isGreeting(t)) {
     return {
-      lane: "products_entry",
-      reason: "menu_products",
-      flow: nextFlow("products", "section")
+      lane: "menu",
+      reason: "greeting_to_menu",
+      flow: nextFlow("menu", "welcome")
     };
   }
 
-  // زر/رقم 2 => دخول موجّه لمسار الاستعلامات
-  if (menuChoice === "inquiries") {
-    return {
-      lane: "inquiries_entry",
-      reason: "menu_inquiries",
-      flow: nextFlow("inquiries", "topic")
-    };
+  // الأرقام 1/2 في القائمة الرئيسية فقط
+  if (
+    (currentFlow.active === null) ||
+    (currentFlow.active === "menu") ||
+    (currentFlow.step === "welcome")
+  ) {
+    if (t === "1") {
+      return {
+        lane: "products_entry",
+        reason: "menu_products",
+        flow: nextFlow("products", "section")
+      };
+    }
+
+    if (t === "2") {
+      return {
+        lane: "inquiries_entry",
+        reason: "menu_inquiries",
+        flow: nextFlow("inquiries", "topic")
+      };
+    }
   }
 
-  // نص حر واضح لمنتج => لا ترجعه للمنيو، مرّره للمحرك مع تثبيت flow
-  if (menuChoice === "products_text") {
+  // نص حر واضح لمنتج
+  if (isProductsHint(t)) {
     return {
       lane: "engine_products_text",
       reason: "free_text_product",
@@ -94,8 +95,8 @@ export function routeMessage({ session, text, hasMedia = false }) {
     };
   }
 
-  // نص حر واضح لاستعلام => لا ترجعه للمنيو، مرّره للمحرك مع تثبيت flow
-  if (menuChoice === "inquiries_text") {
+  // نص حر واضح لاستعلام
+  if (isInquiriesHint(t)) {
     return {
       lane: "engine_inquiries_text",
       reason: "free_text_inquiry",
@@ -103,7 +104,7 @@ export function routeMessage({ session, text, hasMedia = false }) {
     };
   }
 
-  // إذا كان داخل flow فعّال، أكمل من نفس المسار
+  // إذا كنا أصلًا داخل مسار منتجات، لا تعيد تفسير 1/2 كقائمة رئيسية
   if (currentFlow.active === "products" && currentFlow.step) {
     return {
       lane: "engine_products_text",
@@ -112,6 +113,7 @@ export function routeMessage({ session, text, hasMedia = false }) {
     };
   }
 
+  // إذا كنا أصلًا داخل مسار استعلامات، لا تعيد تفسير 1/2 كقائمة رئيسية
   if (currentFlow.active === "inquiries" && currentFlow.step) {
     return {
       lane: "engine_inquiries_text",
@@ -120,7 +122,6 @@ export function routeMessage({ session, text, hasMedia = false }) {
     };
   }
 
-  // غير واضح => القائمة
   return {
     lane: "menu",
     reason: "show_welcome",
