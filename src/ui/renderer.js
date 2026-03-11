@@ -37,7 +37,6 @@ const TEMPLATES = {
 ℹ️ استعلامات`,
 
 WELCOME_FALLBACK_NUMBERS:
-`[BUILD: HYBRID-M2-LIVE-CHECK]
 أهلًا وسهلًا 😊🌟
 سعداء لاختياركم تصفيات قلقيلية—خلّيني أساعدك تلاقي أفضل خيار بسرعة.
 
