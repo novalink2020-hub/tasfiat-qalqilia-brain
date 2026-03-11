@@ -8,6 +8,7 @@ import { routeMessage } from "./router/router.js";
 import { loadKnowledge, getKnowledge } from "./knowledge/loader.js";
 import { handleQuery } from "./search/engine.js";
 import { buildChannelContextFromWebhook, renderTemplate } from "./ui/renderer.js";
+import { handleProductsFlow } from "./flows/productsFlow.js";
 import { tryLockCartFollowup, setCartFollowupTimeoutId, unlockCartFollowup } from "./chatwoot/cartFollowupLock.js";
 import {
   chatwootCreateMessage,
@@ -377,6 +378,55 @@ app.post("/chatwoot/webhook", async (req, res) => {
     }
 
 
+    const convKey = String(conversationId);
+    const isNumberChoice = /^[1-3]$/.test(String(content || "").trim());
+
+    // إذا في قائمة منتجات قديمة نشطة، خلي engine يعالج اختيار 1/2/3
+    if (!(route.lane === "engine_products_text" && isNumberChoice && choiceMemory?.has(convKey))) {
+      if (route.lane === "engine_products_text") {
+        const flowResult = handleProductsFlow({
+          text: content,
+          session: getSession(convKey),
+          routeReason: route.reason,
+          conversationId: convKey
+        });
+
+        if (flowResult?.type === "reply") {
+          await chatwootCreateMessage(conversationId, flowResult.reply);
+          return res.json({
+            ok: true,
+            replied: true,
+            lane: route.lane,
+            flow: flowResult.patch?.flow || getSession(convKey)?.flow || null
+          });
+        }
+
+        if (flowResult?.type === "engine") {
+          const out = handleQuery(flowResult.query || content, {
+            conversationId: convKey,
+            choiceMemory
+          });
+
+          const labels = mapToChatwootLabels(out.tags || []);
+          if (labels.length) {
+            const convNow = await chatwootGetConversation(conversationId);
+            const existing = Array.isArray(convNow?.labels) ? convNow.labels : [];
+            const merged = Array.from(new Set([...existing, ...labels]));
+            const same =
+              merged.length === existing.length &&
+              merged.every((x) => existing.includes(x));
+
+            if (!same) {
+              await chatwootSetLabels(conversationId, merged);
+            }
+          }
+
+          await chatwootCreateMessage(conversationId, out.reply);
+          return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
+        }
+      }
+    }
+
     const out = handleQuery(content, {
       conversationId: String(conversationId),
       choiceMemory
@@ -403,6 +453,7 @@ if (labels.length) {
 
 await chatwootCreateMessage(conversationId, out.reply);
 return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
+
   } catch (e) {
     console.error(e);
     return res.json({ ok: false, error: "webhook_failed" });
