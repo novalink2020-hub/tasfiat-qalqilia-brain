@@ -16,16 +16,14 @@ function isNo(text) {
   return /^(لا|لأ|كلا|مش ضروري|مو ضروري|بدون|لا شكرا|لا شكرًا)$/i.test(normalizeText(text));
 }
 
-function isYes(text) {
-  return /^(نعم|ايوه|أيوه|ايوا|اه|أه|اكيد|أكيد|yes)$/i.test(normalizeText(text));
-}
-
-function extractSection(text) {
+function extractSection(text, step = null) {
   const t = normalizeText(text);
 
-  if (t === "1") return "عطور";
-  if (t === "2") return "أحذية";
-  if (t === "3") return "ملابس";
+  if (step === "section") {
+    if (t === "1") return "عطور";
+    if (t === "2") return "أحذية";
+    if (t === "3") return "ملابس";
+  }
 
   if (/عطر|عطور|برفان|كولونيا/.test(t)) return "عطور";
   if (/حذاء|احذية|أحذية|بوت|جزمة|كوتشي|شوز|صندل|شبشب/.test(t)) return "أحذية";
@@ -34,17 +32,19 @@ function extractSection(text) {
   return null;
 }
 
-function extractAudience(text, section = null) {
+function extractAudience(text, section = null, step = null) {
   const t = normalizeText(text);
 
-  if (section === "عطور") {
-    if (t === "1") return "رجالي";
-    if (t === "2") return "ستاتي";
-  } else {
-    if (t === "1") return "رجالي";
-    if (t === "2") return "ستاتي";
-    if (t === "3") return "ولادي";
-    if (t === "4") return "بناتي";
+  if (step === "audience") {
+    if (section === "عطور") {
+      if (t === "1") return "رجالي";
+      if (t === "2") return "ستاتي";
+    } else {
+      if (t === "1") return "رجالي";
+      if (t === "2") return "ستاتي";
+      if (t === "3") return "ولادي";
+      if (t === "4") return "بناتي";
+    }
   }
 
   if (/رجالي|رجال|للرجال|شباب/.test(t)) return "رجالي";
@@ -55,33 +55,36 @@ function extractAudience(text, section = null) {
   return null;
 }
 
-function extractSize(text, section = null) {
+function extractSize(text, section = null, step = null) {
   const t = normalizeText(text);
 
   if (section === "عطور") return null;
 
+  const explicitSizeWords = /(?:نمرة|نمره|مقاس|قياس|رقم)/i.test(t);
+  const pureNumeric = /^\d{2,3}(?:\.\d)?$/.test(t);
+  const pureAlpha = /^(XXL|XL|L|M|S)$/i.test(t);
+
+  if (step !== "size" && !explicitSizeWords) {
+    return null;
+  }
+
   if (section === "أحذية") {
     const numeric = t.match(/(?:نمرة|نمره|مقاس|قياس|رقم)?\s*[:\-]?\s*(\d{2,3}(?:\.\d)?)/i);
     if (numeric?.[1]) return String(numeric[1]);
-    return null;
+    return pureNumeric ? t : null;
   }
 
   if (section === "ملابس") {
     const alpha = t.match(/\b(XXL|XL|L|M|S)\b/i);
     if (alpha) return String(alpha[1]).toUpperCase();
+    if (pureAlpha) return t.toUpperCase();
 
     const numeric = t.match(/(?:نمرة|نمره|مقاس|قياس|رقم)?\s*[:\-]?\s*(\d{2,3}(?:\.\d)?)/i);
     if (numeric?.[1]) return String(numeric[1]);
-    return null;
+    return pureNumeric ? t : null;
   }
 
   return null;
-}
-
-function extractBudget(text) {
-  const t = normalizeText(text);
-  const m = t.match(/(\d{2,5})\s*(شيكل|₪)?/i);
-  return m?.[1] ? Number(m[1]) : null;
 }
 
 function looksLikeSingleMenuDigit(text) {
@@ -90,7 +93,7 @@ function looksLikeSingleMenuDigit(text) {
 
 function hasProductWords(text) {
   const t = normalizeText(text);
-  return /حذاء|احذية|أحذية|بوت|جزمة|كوتشي|ملابس|عطر|عطور|برفان|رجالي|ستاتي|ولادي|بناتي|نمرة|مقاس/.test(t);
+  return /حذاء|احذية|أحذية|بوت|جزمة|كوتشي|ملابس|عطر|عطور|برفان|رجالي|ستاتي|ولادي|بناتي|نمرة|نمره|مقاس|قياس/.test(t);
 }
 
 function askSection() {
@@ -145,22 +148,17 @@ S أو M أو L أو رقم
 }
 
 function askBrandOptIn() {
-  return `إذا بتحب أحدد لك ماركة معيّنة اكتب: نعم
+  return `إذا بتحب ماركة معيّنة اكتب اسمها مباشرة
 وإذا ما بهمك اكتب: لا`;
-}
-
-function askBrandValue() {
-  return `اكتب اسم الماركة المطلوبة.`;
 }
 
 function askBudgetOptIn() {
-  return `إذا عندك ميزانية محددة اكتب: نعم
-وإذا ما بهمك اكتب: لا`;
-}
+  return `اختر الميزانية:
 
-function askBudgetValue() {
-  return `اكتب الميزانية بالشيكل
-مثال: 150`;
+اكتب رقم:
+1) أقل من 100 شيكل
+2) أقل من 200 شيكل
+3) لا يهم`;
 }
 
 function buildSearchQuery(state) {
@@ -170,6 +168,9 @@ function buildSearchQuery(state) {
   if (state.audience) parts.push(state.audience);
   if (state.size && state.section !== "عطور") parts.push(`مقاس ${state.size}`);
   if (state.brand_std) parts.push(state.brand_std);
+
+  if (state.budget?.max === 100) parts.push("أقل من 100 شيكل");
+  if (state.budget?.max === 200) parts.push("أقل من 200 شيكل");
   if (state.budget?.value) parts.push(`${state.budget.value} شيكل`);
 
   return parts.join(" ").trim();
@@ -188,9 +189,9 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
   const step = currentFlow.step || "section";
   const raw = String(text || "").trim();
 
-  const detectedSection = extractSection(raw) || current.section || null;
-  const detectedAudience = extractAudience(raw, detectedSection) || current.audience || null;
-  const detectedSize = extractSize(raw, detectedSection) || current.size || null;
+  const detectedSection = extractSection(raw, step) || current.section || null;
+  const detectedAudience = extractAudience(raw, detectedSection, step) || current.audience || null;
+  const detectedSize = extractSize(raw, detectedSection, step) || current.size || null;
 
   const patch = {
     section: detectedSection,
@@ -199,13 +200,10 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
     last_user_text: raw
   };
 
-  // التقط brand/budget من النص الحر إذا المستخدم كتبهم في رسالة طبيعية
+  // التقاط الماركة/الميزانية من النص الحر الكامل فقط
   if (!looksLikeSingleMenuDigit(raw) && hasProductWords(raw)) {
-    const budget = extractBudget(raw);
-    if (budget) patch.budget = { value: budget, min: null, max: null };
-
     const possibleBrand = raw
-      .replace(/(?:بدي|بدي|أريد|ابغى|أبغى|لو سمحت|رجالي|ستاتي|ولادي|بناتي|حذاء|احذية|أحذية|بوت|جزمة|كوتشي|عطر|عطور|برفان|ملابس|نمرة|نمره|مقاس|قياس|\d+|شيكل)/gi, " ")
+      .replace(/(?:بدي|بدي|أريد|ابغى|أبغى|لو سمحت|رجالي|ستاتي|ولادي|بناتي|حذاء|احذية|أحذية|بوت|جزمة|كوتشي|عطر|عطور|برفان|ملابس|نمرة|نمره|مقاس|قياس|\d+|شيكل|اقل من|أقل من)/gi, " ")
       .replace(/\s+/g, " ")
       .trim();
 
@@ -214,7 +212,7 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
     }
   }
 
-  // 1) لو النص الحر نفسه مكتمل → ابحث مباشرة
+  // نص حر مكتمل
   if (!looksLikeSingleMenuDigit(raw) && getMinimumReady({ ...current, ...patch })) {
     updateSession(conversationId, {
       ...patch,
@@ -231,7 +229,7 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
     };
   }
 
-  // 2) الخطوة الحالية = section
+  // section
   if (step === "section") {
     if (!patch.section) {
       updateSession(conversationId, {
@@ -262,7 +260,7 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
     };
   }
 
-  // 3) الخطوة الحالية = audience
+  // audience
   if (step === "audience") {
     if (!patch.audience) {
       updateSession(conversationId, {
@@ -311,7 +309,7 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
     };
   }
 
-  // 4) الخطوة الحالية = size
+  // size
   if (step === "size") {
     if (!patch.size) {
       updateSession(conversationId, {
@@ -344,7 +342,7 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
     };
   }
 
-  // 5) الخطوة الحالية = brand_optin
+  // brand_optin
   if (step === "brand_optin") {
     const normalized = normalizeText(raw);
 
@@ -366,46 +364,7 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
       };
     }
 
-    // نعم + اسم ماركة في نفس الرسالة
-    const yesWithBrand = normalized.match(/^(?:نعم|ايوه|أيوه|ايوا|اه|أه|اكيد|أكيد)\s+(.+)$/i);
-    if (yesWithBrand?.[1]) {
-      const brandValue = yesWithBrand[1].trim();
-
-      updateSession(conversationId, {
-        ...patch,
-        brand_std: brandValue,
-        flow: { active: "products", step: "budget_optin", updated_at: Date.now() }
-      });
-
-      return {
-        type: "reply",
-        reply: askBudgetOptIn(),
-        patch: {
-          ...patch,
-          brand_std: brandValue,
-          flow: { active: "products", step: "budget_optin", updated_at: Date.now() }
-        }
-      };
-    }
-
-    if (isYes(raw)) {
-      updateSession(conversationId, {
-        ...patch,
-        flow: { active: "products", step: "brand_value", updated_at: Date.now() }
-      });
-
-      return {
-        type: "reply",
-        reply: askBrandValue(),
-        patch: {
-          ...patch,
-          flow: { active: "products", step: "brand_value", updated_at: Date.now() }
-        }
-      };
-    }
-
-    // إذا المستخدم كتب اسم ماركة مباشرة بدل نعم
-    if (!looksLikeSingleMenuDigit(raw) && raw.length >= 2) {
+    if (!looksLikeSingleMenuDigit(raw) && normalized.length >= 2) {
       updateSession(conversationId, {
         ...patch,
         brand_std: raw,
@@ -433,92 +392,31 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
     };
   }
 
-  // 6) الخطوة الحالية = brand_value
-  if (step === "brand_value") {
-    if (!raw || isNo(raw)) {
-      updateSession(conversationId, {
-        ...patch,
-        brand_std: null,
-        flow: { active: "products", step: "budget_optin", updated_at: Date.now() }
-      });
-
-      return {
-        type: "reply",
-        reply: askBudgetOptIn(),
-        patch: {
-          ...patch,
-          brand_std: null,
-          flow: { active: "products", step: "budget_optin", updated_at: Date.now() }
-        }
-      };
-    }
-
-    updateSession(conversationId, {
-      ...patch,
-      brand_std: raw,
-      flow: { active: "products", step: "budget_optin", updated_at: Date.now() }
-    });
-
-    return {
-      type: "reply",
-      reply: askBudgetOptIn(),
-      patch: {
-        ...patch,
-        brand_std: raw,
-        flow: { active: "products", step: "budget_optin", updated_at: Date.now() }
-      }
-    };
-  }
-
-  // 7) الخطوة الحالية = budget_optin
+  // budget_optin
   if (step === "budget_optin") {
-    if (isYes(raw)) {
-      updateSession(conversationId, {
-        ...patch,
-        flow: { active: "products", step: "budget_value", updated_at: Date.now() }
-      });
+    let budgetPatch = undefined;
+    const normalized = normalizeText(raw);
 
-      return {
-        type: "reply",
-        reply: askBudgetValue(),
-        patch: {
-          ...patch,
-          flow: { active: "products", step: "budget_value", updated_at: Date.now() }
-        }
-      };
+    if (normalized === "1") {
+      budgetPatch = { value: null, min: null, max: 100 };
+    } else if (normalized === "2") {
+      budgetPatch = { value: null, min: null, max: 200 };
+    } else if (normalized === "3" || isNo(raw)) {
+      budgetPatch = null;
     }
 
-    if (isNo(raw)) {
-      const nextState = { ...current, ...patch };
-      const query = buildSearchQuery(nextState);
-
-      updateSession(conversationId, {
-        ...patch,
-        flow: { active: "products", step: "results", updated_at: Date.now() }
-      });
-
-      return {
-        type: "engine",
-        query,
-        patch: {
-          ...patch,
-          flow: { active: "products", step: "results", updated_at: Date.now() }
-        }
-      };
-    }
-
-    const inlineBudget = extractBudget(raw);
-    if (inlineBudget) {
+    if (budgetPatch !== undefined) {
       const nextState = {
         ...current,
         ...patch,
-        budget: { value: inlineBudget, min: null, max: null }
+        budget: budgetPatch
       };
+
       const query = buildSearchQuery(nextState);
 
       updateSession(conversationId, {
         ...patch,
-        budget: { value: inlineBudget, min: null, max: null },
+        budget: budgetPatch,
         flow: { active: "products", step: "results", updated_at: Date.now() }
       });
 
@@ -527,7 +425,7 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
         query,
         patch: {
           ...patch,
-          budget: { value: inlineBudget, min: null, max: null },
+          budget: budgetPatch,
           flow: { active: "products", step: "results", updated_at: Date.now() }
         }
       };
@@ -539,49 +437,6 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
       patch: {
         ...patch,
         flow: { active: "products", step: "budget_optin", updated_at: Date.now() }
-      }
-    };
-  }
-
-  // 8) الخطوة الحالية = budget_value
-  if (step === "budget_value") {
-    const budget = extractBudget(raw);
-    if (!budget) {
-      updateSession(conversationId, {
-        ...patch,
-        flow: { active: "products", step: "budget_value", updated_at: Date.now() }
-      });
-
-      return {
-        type: "reply",
-        reply: askBudgetValue(),
-        patch: {
-          ...patch,
-          flow: { active: "products", step: "budget_value", updated_at: Date.now() }
-        }
-      };
-    }
-
-    const nextState = {
-      ...current,
-      ...patch,
-      budget: { value: budget, min: null, max: null }
-    };
-    const query = buildSearchQuery(nextState);
-
-    updateSession(conversationId, {
-      ...patch,
-      budget: { value: budget, min: null, max: null },
-      flow: { active: "products", step: "results", updated_at: Date.now() }
-    });
-
-    return {
-      type: "engine",
-      query,
-      patch: {
-        ...patch,
-        budget: { value: budget, min: null, max: null },
-        flow: { active: "products", step: "results", updated_at: Date.now() }
       }
     };
   }
