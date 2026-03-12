@@ -158,7 +158,7 @@ function askBudgetOptIn() {
 اكتب رقم:
 1) أقل من 100 شيكل
 2) أقل من 200 شيكل
-3) لا يهم`;
+3) كل الخيارات`;
 }
 
 function buildSearchQuery(state) {
