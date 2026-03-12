@@ -212,8 +212,20 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
     }
   }
 
-  // نص حر مكتمل
-  if (!looksLikeSingleMenuDigit(raw) && getMinimumReady({ ...current, ...patch })) {
+  // نص حر مكتمل: فقط إذا كانت الرسالة نفسها تبدو طلب منتج فعلي، لا جواب خطوة قصيرة
+  const isShortStepAnswer =
+    isNo(raw) ||
+    /^[0-9]$/.test(normalizeText(raw)) ||
+    /^(XXL|XL|L|M|S)$/i.test(normalizeText(raw)) ||
+    /^\d{2,3}(?:\.\d)?$/.test(normalizeText(raw));
+
+  const canDirectSearchFromRaw =
+    !looksLikeSingleMenuDigit(raw) &&
+    !isShortStepAnswer &&
+    hasProductWords(raw) &&
+    getMinimumReady({ ...current, ...patch });
+
+  if (canDirectSearchFromRaw) {
     updateSession(conversationId, {
       ...patch,
       flow: { active: "products", step: "results", updated_at: Date.now() }
@@ -221,7 +233,7 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
 
     return {
       type: "engine",
-      query: raw,
+      query: buildSearchQuery({ ...current, ...patch }),
       patch: {
         ...patch,
         flow: { active: "products", step: "results", updated_at: Date.now() }
