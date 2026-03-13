@@ -16,6 +16,10 @@ function isNo(text) {
   return /^(لا|لأ|كلا|مش ضروري|مو ضروري|بدون|لا شكرا|لا شكرًا)$/i.test(normalizeText(text));
 }
 
+function isDontCareSize(text) {
+  return /^(لا يهم|مش مهم|مو مهم|اي مقاس|أي مقاس|اي شي|أي شي)$/i.test(normalizeText(text));
+}
+
 function extractSection(text, step = null) {
   const t = normalizeText(text);
 
@@ -323,6 +327,24 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
 
   // size
   if (step === "size") {
+    if (isDontCareSize(raw)) {
+      updateSession(conversationId, {
+        ...patch,
+        flow: { active: "products", step: "size", updated_at: Date.now() }
+      });
+
+      return {
+        type: "reply",
+        reply: `لازم تحدد المقاس حتى أعرض لك نتائج دقيقة.
+
+${askSize(patch.section || current.section)}`,
+        patch: {
+          ...patch,
+          flow: { active: "products", step: "size", updated_at: Date.now() }
+        }
+      };
+    }
+
     if (!patch.size) {
       updateSession(conversationId, {
         ...patch,
@@ -424,7 +446,7 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
         budget: budgetPatch
       };
 
-      const query = buildSearchQuery(nextState);
+      const query = buildSearchQuery(nextState).trim();
 
       updateSession(conversationId, {
         ...patch,
@@ -434,7 +456,13 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
 
       return {
         type: "engine",
-        query,
+        query: query || buildSearchQuery({
+          section: nextState.section,
+          audience: nextState.audience,
+          size: nextState.size,
+          brand_std: nextState.brand_std,
+          budget: nextState.budget
+        }),
         patch: {
           ...patch,
           budget: budgetPatch,
