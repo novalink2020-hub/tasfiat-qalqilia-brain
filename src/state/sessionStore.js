@@ -91,10 +91,17 @@ if ("section" in patch) out.section = patch.section ? String(patch.section) : nu
 if ("audience" in patch) out.audience = patch.audience ? String(patch.audience) : null;
 
 if ("size" in patch) {
-  if (patch.size === null) out.size = null;
-  else {
-    const n = Number(patch.size);
-    out.size = Number.isFinite(n) ? n : null;
+  if (patch.size === null || patch.size === undefined || patch.size === "") {
+    out.size = null;
+  } else {
+    const rawSize = String(patch.size).trim().toUpperCase();
+
+    if (/^(XXL|XL|L|M|S)$/.test(rawSize)) {
+      out.size = rawSize;
+    } else {
+      const n = Number(rawSize);
+      out.size = Number.isFinite(n) ? String(rawSize) : null;
+    }
   }
 }
 
