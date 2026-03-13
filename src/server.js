@@ -108,9 +108,21 @@ function clearLegacySelectionState(conversationId) {
     choiceMemory.delete(convKey);
   }
 
-  clearSessionKeys(convKey, ["flags"]);
-}
+  // نظّف أي متابعة سلة معلّقة أثناء تغيير النية/الرجوع
+  unlockCartFollowup(convKey);
 
+  // صفّر حقول المنتجات القديمة حتى لا تتسرّب لطلب جديد
+  clearSessionKeys(convKey, [
+    "section",
+    "audience",
+    "size",
+    "brand",
+    "budget",
+    "intent",
+    "purchase_gate",
+    "flags"
+  ]);
+}
 
 // ===== ROUTES =====
 app.get("/", (req, res) => {
@@ -211,6 +223,14 @@ if (existingLabels.includes("متابعة_السلة_تمت")) {
         // لو الوسم موجود: لا ترسل
         if (labelsNow.includes("متابعة_السلة_تمت")) {
           console.log("✅ cart-followup canceled (already labeled) for", convId);
+          return;
+        }
+
+        // لا ترسل متابعة السلة إذا في Flow فعّال أو حتى المستخدم على القائمة
+        const liveSession = getSession(convId);
+        const activeFlow = liveSession?.flow?.active || null;
+        if (activeFlow) {
+          console.log("🛑 cart-followup canceled (active flow exists) for", convId, activeFlow);
           return;
         }
 
@@ -384,6 +404,15 @@ app.post("/chatwoot/webhook", async (req, res) => {
     // إذا في قائمة منتجات قديمة نشطة، خلي engine يعالج اختيار 1/2/3
     if (!(route.lane === "engine_products_text" && isNumberChoice && choiceMemory?.has(convKey))) {
       if (route.lane === "engine_products_text") {
+        if (route.reason === "free_text_product") {
+          clearLegacySelectionState(conversationId);
+
+          updateSession(convKey, {
+            flow: { active: "products", step: "section", updated_at: Date.now() },
+            last_user_text: content
+          });
+        }
+
         const flowResult = handleProductsFlow({
           text: content,
           session: getSession(convKey),
@@ -402,6 +431,10 @@ app.post("/chatwoot/webhook", async (req, res) => {
         }
 
         if (flowResult?.type === "engine") {
+          if (choiceMemory?.has(convKey)) {
+            choiceMemory.delete(convKey);
+          }
+
           const out = handleQuery(flowResult.query || content, {
             conversationId: convKey,
             choiceMemory
