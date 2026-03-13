@@ -261,6 +261,55 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
       };
     }
 
+    // إذا الرسالة نفسها حسمت الجمهور أيضًا، اقفز للخطوة الناقصة مباشرة
+    if (patch.audience) {
+      if (patch.section === "عطور") {
+        updateSession(conversationId, {
+          ...patch,
+          flow: { active: "products", step: "brand_optin", updated_at: Date.now() }
+        });
+
+        return {
+          type: "reply",
+          reply: askBrandOptIn(),
+          patch: {
+            ...patch,
+            flow: { active: "products", step: "brand_optin", updated_at: Date.now() }
+          }
+        };
+      }
+
+      if (patch.size) {
+        updateSession(conversationId, {
+          ...patch,
+          flow: { active: "products", step: "brand_optin", updated_at: Date.now() }
+        });
+
+        return {
+          type: "reply",
+          reply: askBrandOptIn(),
+          patch: {
+            ...patch,
+            flow: { active: "products", step: "brand_optin", updated_at: Date.now() }
+          }
+        };
+      }
+
+      updateSession(conversationId, {
+        ...patch,
+        flow: { active: "products", step: "size", updated_at: Date.now() }
+      });
+
+      return {
+        type: "reply",
+        reply: askSize(patch.section),
+        patch: {
+          ...patch,
+          flow: { active: "products", step: "size", updated_at: Date.now() }
+        }
+      };
+    }
+
     updateSession(conversationId, {
       ...patch,
       flow: { active: "products", step: "audience", updated_at: Date.now() }
@@ -295,6 +344,22 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
     }
 
     if ((patch.section || current.section) === "عطور") {
+      updateSession(conversationId, {
+        ...patch,
+        flow: { active: "products", step: "brand_optin", updated_at: Date.now() }
+      });
+
+      return {
+        type: "reply",
+        reply: askBrandOptIn(),
+        patch: {
+          ...patch,
+          flow: { active: "products", step: "brand_optin", updated_at: Date.now() }
+        }
+      };
+    }
+
+    if (patch.size) {
       updateSession(conversationId, {
         ...patch,
         flow: { active: "products", step: "brand_optin", updated_at: Date.now() }
