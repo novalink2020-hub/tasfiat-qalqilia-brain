@@ -437,7 +437,8 @@ app.post("/chatwoot/webhook", async (req, res) => {
 
           const out = handleQuery(flowResult.query || content, {
             conversationId: convKey,
-            choiceMemory
+            choiceMemory,
+            forceList: true
           });
 
           const labels = mapToChatwootLabels(out.tags || []);
