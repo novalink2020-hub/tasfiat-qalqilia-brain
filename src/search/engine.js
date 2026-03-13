@@ -97,13 +97,17 @@ function toLatinDigits_(s) {
 }
 
 function extractSizeQuery(queryLower) {
-  const t = toLatinDigits_(String(queryLower || ""));
+  const t = toLatinDigits_(String(queryLower || "")).trim();
 
-  // 1) نمرة/نمره/مقاس/قياس/رقم + رقم (مثل: نمرة 42)
+  // 1) مقاسات الملابس بالحروف
+  const alpha = t.match(/\b(XXL|XL|L|M|S)\b/i);
+  if (alpha?.[1]) return String(alpha[1]).toUpperCase();
+
+  // 2) نمرة/نمره/مقاس/قياس/رقم + رقم
   const m1 = t.match(/(?:\b(?:نمرة|نمره|مقاس|قياس|رقم)\b)\s*[:\-]?\s*(\d{2,3}(?:\.\d)?)/i);
   if (m1?.[1]) return String(m1[1]);
 
-  // 2) fallback: رقم مستقل بين كلمات (مثل: "42") — نفس منطقك السابق
+  // 3) fallback: رقم مستقل
   const m2 = t.match(/(^|\s)(\d{2,3}(?:\.\d)?)(\s|$)/);
   return m2 ? String(m2[2]) : null;
 }
@@ -474,6 +478,7 @@ function searchKnowledge(q, opts = {}) {
   const queryLower = normalizeForMatch(q);
   const queryFold = normalizeKeyForScoring(q);
   const tokens = tokenize(q).map((t) => normalizeKeyForScoring(t)).filter(Boolean);
+  const forceList = !!opts?.forceList;
 
   const rawSlug = String(q || "").trim().toLowerCase();
   const looksLikeSlug = /^[a-z0-9]+(?:-[a-z0-9]+)+$/i.test(rawSlug);
@@ -571,6 +576,14 @@ const hAud = hardAudience ? normalizeKeyForScoring(String(hardAudience)) : null;
 if (hSec && xSec !== hSec) continue;
 if (hAud && xAud !== hAud) continue;
 
+// ✅ Hard budget filter من الجلسة/الـ Flow
+const hardBudget = sess?.budget || null;
+if (hardBudget) {
+  if (!Number.isFinite(price) || price <= 0) continue;
+  if (Number.isFinite(Number(hardBudget.max)) && price > Number(hardBudget.max)) continue;
+  if (Number.isFinite(Number(hardBudget.min)) && price < Number(hardBudget.min)) continue;
+}
+
     const isPolicyLike =
       slug.startsWith("policy-") ||
       slug.startsWith("info-") ||
@@ -578,24 +591,40 @@ if (hAud && xAud !== hAud) continue;
       tagsLow.includes("سياسات") ||
       tagsLow.includes("فروع");
 
-// ✅ Size-first: exact أولاً، ثم سماح ±1 لتعبئة النتائج
+// ✅ Size-first: exact أولاً، ثم سماح ±1 للأرقام فقط
 let sizeDistance = null; // 0 exact, 1 near, null none
-const askedSizeNum = askedSizeNumGlobal;
+const askedSizeRaw = askedSize ? String(askedSize).trim().toUpperCase() : null;
+const askedSizeNum = askedSizeRaw && /^\d/.test(askedSizeRaw) ? Number(askedSizeRaw) : null;
+const askedSizeAlpha = askedSizeRaw && /^(XXL|XL|L|M|S)$/i.test(askedSizeRaw) ? askedSizeRaw : null;
 
-if (askedSizeNum && !isPolicyLike) {
-  // ✅ parsing مرن: يلتقط أي رقم من النص مهما كان الفاصل (مسافة/فاصلة/بايب/شرطة/فاصلة عربية)
-  const nums = Array.from(String(sizes || "").matchAll(/(\d{1,3}(?:\.\d)?)/g))
-    .map(m => Number(m[1]))
-    .filter(n => Number.isFinite(n));
+if (askedSizeRaw && !isPolicyLike) {
+  const rawSizes = String(sizes || "");
 
-  // ✅ إذا ما قدرنا نقرأ المقاسات من المعرفة: لا نقصي المنتج (خلّيه مرشح بدون boost للمقاس)
-  if (nums.length) {
-    if (nums.includes(askedSizeNum)) {
-      sizeDistance = 0;
+  if (askedSizeAlpha) {
+    const alphaTokens = Array.from(rawSizes.toUpperCase().matchAll(/\b(XXL|XL|L|M|S)\b/g)).map(m => m[1]);
+    if (alphaTokens.length) {
+      if (alphaTokens.includes(askedSizeAlpha)) sizeDistance = 0;
+      else continue;
     } else {
-      const minDiff = Math.min(...nums.map(n => Math.abs(n - askedSizeNum)));
-      if (minDiff <= 1) sizeDistance = 1;
-      else continue; // هنا فقط نقصي لأنه واضح أنه لا يطابق حتى ±1
+      continue;
+    }
+  }
+
+  if (askedSizeNum) {
+    const nums = Array.from(rawSizes.matchAll(/(\d{1,3}(?:\.\d)?)/g))
+      .map(m => Number(m[1]))
+      .filter(n => Number.isFinite(n));
+
+    if (nums.length) {
+      if (nums.includes(askedSizeNum)) {
+        sizeDistance = 0;
+      } else {
+        const minDiff = Math.min(...nums.map(n => Math.abs(n - askedSizeNum)));
+        if (minDiff <= 1) sizeDistance = 1;
+        else continue;
+      }
+    } else {
+      continue;
     }
   }
 }
@@ -715,13 +744,20 @@ if (brandKey && scored.length < 3 && effectiveSection && effectiveAudience) {
 
     // احترم المقاس (exact/±1) إذا موجود
     if (askedSizeNum) {
-      const nums = String(x.sizes || "")
-        .split(",")
-        .map(s => Number(String(s).trim()))
+      const nums = Array.from(String(x.sizes || "").matchAll(/(\d{1,3}(?:\.\d)?)/g))
+        .map(m => Number(m[1]))
         .filter(n => Number.isFinite(n));
       if (!nums.length) continue;
       const minDiff = Math.min(...nums.map(n => Math.abs(n - askedSizeNum)));
       if (minDiff > 1) continue;
+    }
+
+    // احترم الميزانية أيضًا في fallback
+    const altPrice = Number(x.price || 0);
+    if (hardBudget) {
+      if (!Number.isFinite(altPrice) || altPrice <= 0) continue;
+      if (Number.isFinite(Number(hardBudget.max)) && altPrice > Number(hardBudget.max)) continue;
+      if (Number.isFinite(Number(hardBudget.min)) && altPrice < Number(hardBudget.min)) continue;
     }
 
     // سكور بسيط: نعطيه نقطة دخول، لكن أقل من سكورات الماركة المطلوبة
@@ -760,6 +796,14 @@ if (askedSizeNumGlobal && Number.isFinite(askedSizeNumGlobal)) {
   minScore = Math.min(minScore, (P?.ranking?.min_score_when_size_present ?? 12));
 }
   if (top.score < minScore) return { type: "none", askedSize };
+
+  if (forceList) {
+    const options = scored.slice(0, 3).map((s) => ({
+      slug: s.item.product_slug || "",
+      name: s.item.name || ""
+    }));
+    return { type: "clarify", options, askedSize };
+  }
 
   const tieGap = P?.ranking?.tie_gap ?? 6;
 if (second && second.score >= top.score - tieGap) {
@@ -1216,7 +1260,8 @@ const effectiveBrandKey =
 const res = searchKnowledge(effectiveText, {
   brandKey: effectiveBrandKey,
   brandExact: !!brandInfo?.exact,
-  session: session || null
+  session: session || null,
+  forceList: !!ctx?.forceList
 });
 if (res.type === "hit" && res.item) {
   // ✅ منع hit غلط عندما audience محدد (خصوصًا بعد سؤال المقاس)
@@ -1229,9 +1274,9 @@ if (res.type === "hit" && res.item) {
     const resStrict = searchKnowledge(`${effectiveText} ${desiredAud}`, {
       brandKey: effectiveBrandKey,
       brandExact: !!brandInfo?.exact,
-      session: session || null
+      session: session || null,
+      forceList: !!ctx?.forceList
     });
-
     if (resStrict.type === "hit" && resStrict.item) {
       return { ok: true, found: true, reply: buildReplyFromItem(resStrict.item), tags: ["lead_product", "product_hit", "سلة_التسوق"] };
     }
@@ -1314,7 +1359,8 @@ if (hadSizeInMsg) {
   const res2 = searchKnowledge(qNoSize || effectiveText, {
     brandKey: effectiveBrandKey,
     brandExact: !!brandInfo?.exact,
-    session: session || null
+    session: session || null,
+    forceList: !!ctx?.forceList
   });
 
   if (res2.type === "hit" && res2.item) {
@@ -1370,7 +1416,8 @@ if (hasAudienceWord && hadBrandInMsg) {
   const resAlt = searchKnowledge(ql || effectiveText, {
     brandKey: null,        // ✅ ألغِ قيد الماركة فقط
     brandExact: false,
-    session: session || null
+    session: session || null,
+    forceList: !!ctx?.forceList
   });
 
   if (resAlt.type === "hit" && resAlt.item) {
