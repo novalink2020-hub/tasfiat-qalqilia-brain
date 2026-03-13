@@ -95,6 +95,18 @@ function toLatinDigits_(s) {
     .replace(/[٠-٩]/g, (d) => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)])
     .replace(/[۰-۹]/g, (d) => "0123456789"["۰۱۲۳۴۵۶۷۸۹".indexOf(d)]);
 }
+function extractChoiceNumberFlexible(raw) {
+  const t = toLatinDigits_(String(raw || "")).trim();
+
+  // exact digit
+  if (/^[1-4]$/.test(t)) return t;
+
+  // phrases like: رقم 1 / خيار 2 / بدي خيار رقم 3 / اختار 1
+  const m = t.match(/(?:^|[\s:：-])(?:خيار|رقم|اختار|اختياري|بدي خيار(?: رقم)?)\s*([1-4])(?:\b|$)/i);
+  if (m?.[1]) return m[1];
+
+  return null;
+}
 
 function extractSizeQuery(queryLower) {
   const t = toLatinDigits_(String(queryLower || "")).trim();
@@ -948,7 +960,7 @@ if (convId && (modeNow === "deals" || modeNow === "budget")) {
 }
    
   // اختيار رقم من قائمة (generic)
-  const choiceNum = toLatinDigits_(raw).match(/^\s*([1-4])\s*$/)?.[1] || null;
+  const choiceNum = extractChoiceNumberFlexible(raw);
   if (choiceNum && convKey && choiceMemory?.has(convKey)) {
     const mem = choiceMemory.get(convKey);
     const picked = mem?.options?.[Number(choiceNum) - 1];
@@ -1471,7 +1483,15 @@ if (secNow && audNow && (secNow === "عطور" || sizeNow)) {
     budgetNow?.max === 100 ? "ضمن أقل من 100 شيكل" :
     budgetNow?.max === 200 ? "ضمن أقل من 200 شيكل" :
     "ضمن كل الخيارات";
-
+if (convId) {
+  updateSession(convId, {
+    flow: { active: "products", step: "no_results_actions", updated_at: Date.now() },
+    flags: {
+      ...(session?.flags || {}),
+      pending_pick: "product_no_results_actions"
+    }
+  });
+}
   return {
     ok: true,
     found: false,
