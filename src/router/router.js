@@ -22,7 +22,7 @@ function isProductsHint(text) {
 
 function isInquiriesHint(text) {
   const t = normalizeText(text);
-  return /(^|\s)(استعلام|استفسار|التوصيل|الشحن|رسوم الشحن|الفروع|وين فروعكم|فرعكم|مواقعها|تبديل|إرجاع|ارجاع|استبدال|كيف اطلب|كيف أطلب|موظف|خدمة العملاء|حالة الطلب|وين طلبي|تتبع|الطرد|سياسة الخصوصية|سياسة)(\s|$)/.test(t);
+  return /(^|\s)(استعلام|استفسار|التوصيل|الشحن|رسوم الشحن|الفروع|وين فروعكم|فرعكم|مواقعها|تبديل|إرجاع|ارجاع|استبدال|كيف اطلب|كيف أطلب|موظف|خدمة العملاء|حالة الطلب|وين طلبي|تتبع|الطرد|سياسة الخصوصية|سياسة|دعم|بدي دعم|مساعدة|بدي مساعدة|عندي مشكلة|في عندي مشكلة|مشكلة|مشكل|احكي معكم|بدي احكي مع موظف)(\s|$)/.test(t);
 }
 
 function nextFlow(active, step) {
@@ -106,6 +106,16 @@ export function routeMessage({ session, text, hasMedia = false }) {
   }
 
   if (isInquiriesHint(t)) {
+    const supportLike = /(^|\s)(دعم|بدي دعم|مساعدة|بدي مساعدة|عندي مشكلة|في عندي مشكلة|مشكلة|مشكل|احكي معكم|موظف|بدي احكي مع موظف|خدمة العملاء)(\s|$)/.test(t);
+
+    if (supportLike) {
+      return {
+        lane: "escalation_support",
+        reason: "support_handoff",
+        flow: nextFlow(currentFlow.active, currentFlow.step)
+      };
+    }
+
     return {
       lane: "engine_inquiries_text",
       reason: "free_text_inquiry",
