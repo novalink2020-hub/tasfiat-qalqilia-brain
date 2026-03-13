@@ -340,6 +340,31 @@ app.post("/chatwoot/webhook", async (req, res) => {
       last_user_text: content
     });
 
+        if (route.lane === "escalation_support") {
+      clearLegacySelectionState(conversationId);
+
+      updateSession(String(conversationId), {
+        flow: { active: null, step: null, updated_at: Date.now() },
+        flags: { ...(getSession(String(conversationId))?.flags || {}), pending_pick: null },
+        last_user_text: content
+      });
+
+      const handoffReply = "تمام 🙏 رح أحوّل طلبك لموظف خدمة العملاء. اترك رقمك/اسمك لو سمحت وبيرجعولك بأقرب وقت.";
+
+      const convNow = await chatwootGetConversation(conversationId);
+      const existing = Array.isArray(convNow?.labels) ? convNow.labels : [];
+      const merged = Array.from(new Set([...existing, "تصعيد"]));
+      await chatwootSetLabels(conversationId, merged);
+
+      await chatwootCreateMessage(conversationId, handoffReply);
+
+      return res.json({
+        ok: true,
+        replied: true,
+        lane: route.lane,
+        escalated: true
+      });
+    }
     if (route.lane === "menu") {
       clearLegacySelectionState(conversationId);
 
