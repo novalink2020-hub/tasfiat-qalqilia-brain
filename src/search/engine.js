@@ -1408,7 +1408,8 @@ if (hadSizeInMsg) {
 }
 // ✅ Brand-relax fallback: لا نغيّر audience إطلاقًا.
 // إذا الماركة المطلوبة فشلت، نعطي بدائل بنفس الجمهور + نفس المقاس/الوصف بدون قيد الماركة.
-const hasAudienceWord = /(رجالي|رجال|شباب|ستاتي|نسائي|نساء|حريمي|ولادي|اولاد|أولاد|اطفال|أطفال|بناتي|بنات)/i.test(ql);
+const desiredAudienceForFallback = extractAudienceHint(ql) || session?.audience || null;
+const hasAudienceWord = !!desiredAudienceForFallback;
 const hadBrandInMsg = !!effectiveBrandKey;
 
 if (hasAudienceWord && hadBrandInMsg) {
@@ -1425,7 +1426,7 @@ if (hasAudienceWord && hadBrandInMsg) {
       ok: true,
       found: true,
       reply:
-        `تمام 👌 طلبك واضح: ${extractAudienceHint(ql) || "نفس الجمهور"}${extractSizeQuery(ql) ? ` مقاس ${extractSizeQuery(ql)}` : ""} من ${brandInfo?.brandStd || "نفس الماركة"}.\n` +
+        `تمام 👌 طلبك واضح: ${desiredAudienceForFallback || "نفس الجمهور"}${extractSizeQuery(ql) || session?.size ? ` مقاس ${extractSizeQuery(ql) || session?.size}` : ""} من ${brandInfo?.brandStd || "نفس الماركة"}.\n` +
         `بحثت على نفس الماركة بهالمواصفات وما لقيت المقاس متوفر حالياً.\n` +
         `عشان ما نضيّع وقتك، هذا خيار بديل بنفس المواصفات من ماركة ثانية (جودة قريبة). إذا بدك نفس الماركة فقط احكيلي وبثبت البحث عليها.\n\n` +
         buildReplyFromItem(resAlt.item),
@@ -1439,8 +1440,9 @@ if (hasAudienceWord && hadBrandInMsg) {
 
     const lines = [];
     lines.push(
-      `تمام 👌 طلبك واضح: ${extractAudienceHint(ql) || "نفس الجمهور"}${extractSizeQuery(ql) ? ` مقاس ${extractSizeQuery(ql)}` : ""} من ${brandInfo?.brandStd || "نفس الماركة"}.`
+      `تمام 👌 طلبك واضح: ${desiredAudienceForFallback || "نفس الجمهور"}${extractSizeQuery(ql) || session?.size ? ` مقاس ${extractSizeQuery(ql) || session?.size}` : ""} من ${brandInfo?.brandStd || "نفس الماركة"}.`
     );
+     
     lines.push("بحثت على نفس الماركة بهالمواصفات وما لقيت المقاس متوفر حالياً.");
     lines.push("بدل ما نوقف، هاي 3 بدائل بنفس الجمهور/المقاس من ماركات قريبة. إذا بدك نفس الماركة فقط احكيلي وبثبت البحث عليها:");
     lines.push("اختر رقم:");
@@ -1457,6 +1459,37 @@ if (hasAudienceWord && hadBrandInMsg) {
 }
      
 // default none
+const sNow = convId ? getSession(convId) : (session || null);
+const secNow = sNow?.section || null;
+const audNow = sNow?.audience || null;
+const sizeNow = sNow?.size || null;
+const brandNow = sNow?.brand_std || null;
+const budgetNow = sNow?.budget || null;
+
+if (secNow && audNow && (secNow === "عطور" || sizeNow)) {
+  const budgetText =
+    budgetNow?.max === 100 ? "ضمن أقل من 100 شيكل" :
+    budgetNow?.max === 200 ? "ضمن أقل من 200 شيكل" :
+    "ضمن كل الخيارات";
+
+  return {
+    ok: true,
+    found: false,
+    reply:
+      `تمام 🙏 بحثت بهالمواصفات وما لقيت نتائج مطابقة حاليًا.\n` +
+      `القسم: ${secNow}\n` +
+      `الجمهور: ${audNow}\n` +
+      `${secNow !== "عطور" ? `المقاس: ${sizeNow}\n` : ""}` +
+      `${brandNow ? `الماركة: ${brandNow}\n` : ""}` +
+      `الميزانية: ${budgetText}\n\n` +
+      `إذا بدك، اكتب واحد من الخيارات التالية:\n` +
+      `1) نفس المواصفات لكن بدون تقييد الماركة\n` +
+      `2) نفس المواصفات لكن بميزانية أوسع\n` +
+      `3) ارجع للقائمة`,
+    tags: ["lead_product", "product_none", "needs_clarification"]
+  };
+}
+
 return {
   ok: true,
   found: false,
