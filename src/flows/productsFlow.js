@@ -164,7 +164,13 @@ function askBudgetOptIn() {
 2) أقل من 200 شيكل
 3) كل الخيارات`;
 }
+function askNoResultsActions() {
+  return `إذا بدك، اكتب واحد من الخيارات التالية:
 
+1) نفس المواصفات لكن بدون تقييد الماركة
+2) نفس المواصفات لكن بميزانية أوسع
+3) ارجع للقائمة`;
+}
 function buildSearchQuery(state) {
   const parts = [];
 
@@ -203,7 +209,86 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
     size: detectedSection === "عطور" ? null : detectedSize,
     last_user_text: raw
   };
+  const pendingPick = current?.flags?.pending_pick || null;
 
+  if (step === "no_results_actions" || pendingPick === "product_no_results_actions") {
+    const t = normalizeText(raw);
+
+    const wantsNoBrand =
+      t === "1" ||
+      /بدون تقييد الماركة|بدون ماركة|من غير ماركة|الغاء الماركة|إلغاء الماركة/.test(t);
+
+    const wantsWiderBudget =
+      t === "2" ||
+      /بميزانية اوسع|بميزانية أوسع|وسع الميزانية|وسّع الميزانية|بدون ميزانية|الغاء الميزانية|إلغاء الميزانية/.test(t);
+
+    const wantsBack =
+      t === "3" ||
+      /ارجع للقائمة|رجوع للقائمة|القائمة/.test(t);
+
+    if (wantsBack) {
+      updateSession(conversationId, {
+        flow: { active: "menu", step: "welcome", updated_at: Date.now() },
+        flags: { ...(current.flags || {}), pending_pick: null }
+      });
+
+      return {
+        type: "reply",
+        reply: `أهلًا وسهلًا 😊🌟
+سعداء لاختياركم تصفيات قلقيلية—خلّيني أساعدك تلاقي أفضل خيار بسرعة.
+
+اكتب رقم:
+
+🛍️ طلب منتج
+ℹ️ استعلامات
+اكتب رقم فقط (مثال: 1).`
+      };
+    }
+
+    if (wantsNoBrand) {
+      const nextState = {
+        ...current,
+        ...patch,
+        brand_std: null,
+        brand_key: null
+      };
+
+      updateSession(conversationId, {
+        ...nextState,
+        flow: { active: "products", step: "results", updated_at: Date.now() },
+        flags: { ...(current.flags || {}), pending_pick: null }
+      });
+
+      return {
+        type: "engine",
+        query: buildSearchQuery(nextState)
+      };
+    }
+
+    if (wantsWiderBudget) {
+      const nextState = {
+        ...current,
+        ...patch,
+        budget: null
+      };
+
+      updateSession(conversationId, {
+        ...nextState,
+        flow: { active: "products", step: "results", updated_at: Date.now() },
+        flags: { ...(current.flags || {}), pending_pick: null }
+      });
+
+      return {
+        type: "engine",
+        query: buildSearchQuery(nextState)
+      };
+    }
+
+    return {
+      type: "reply",
+      reply: askNoResultsActions()
+    };
+  }
   // التقاط الماركة/الميزانية من النص الحر الكامل فقط
   if (!looksLikeSingleMenuDigit(raw) && hasProductWords(raw)) {
     const possibleBrand = raw
