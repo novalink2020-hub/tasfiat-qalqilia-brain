@@ -110,7 +110,7 @@ if ("brand_key" in patch) out.brand_key = patch.brand_key ? String(patch.brand_k
 
   if (patch.intent_mode != null) out.intent_mode = patch.intent_mode || "default";
 
-  if (patch.budget != null) {
+  if ("budget" in patch) {
     const b = patch.budget;
     if (b && typeof b === "object") {
       out.budget = {
