@@ -308,11 +308,24 @@ export function handleProductsFlow({ text, session, routeReason, conversationId 
     /^(XXL|XL|L|M|S)$/i.test(normalizeText(raw)) ||
     /^\d{2,3}(?:\.\d)?$/.test(normalizeText(raw));
 
+  const hasExplicitSectionInRaw = !!extractSection(raw);
+  const hasExplicitAudienceInRaw = !!extractAudience(raw, detectedSection);
+  const hasExplicitSizeInRaw = !!extractSize(raw, detectedSection, "size");
+  const hasExplicitBudgetInRaw = /(?:اقل من|أقل من|\d+\s*(شيكل|₪))/i.test(normalizeText(raw));
+  const hasRichSentence = normalizeText(raw).split(" ").length >= 3;
+
+  // ✅ لا نسمح بالقفز المبكر داخل الـ Flow إلا إذا الرسالة نفسها تحمل طلبًا غنيًا فعليًا
   const canDirectSearchFromRaw =
     !looksLikeSingleMenuDigit(raw) &&
     !isShortStepAnswer &&
     hasProductWords(raw) &&
-    getMinimumReady({ ...current, ...patch });
+    getMinimumReady({ ...current, ...patch }) &&
+    (
+      hasExplicitSectionInRaw ||
+      hasExplicitSizeInRaw ||
+      hasExplicitBudgetInRaw ||
+      (hasExplicitAudienceInRaw && hasRichSentence)
+    );
 
   if (canDirectSearchFromRaw) {
     updateSession(conversationId, {
