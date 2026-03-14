@@ -111,18 +111,28 @@ function extractChoiceNumberFlexible(raw) {
 function extractSizeQuery(queryLower) {
   const t = toLatinDigits_(String(queryLower || "")).trim();
 
+  // تجاهل الروابط وأكواد المنتجات الطويلة قدر الإمكان
+  const cleaned = t
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/\b[a-z]{2,}[-_]?\d{3,}[a-z0-9\-_.]*\b/gi, " ")
+    .replace(/\b\d{3,}[a-z0-9\-_.]*\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
   // 1) مقاسات الملابس بالحروف
-  const alpha = t.match(/\b(XXL|XL|L|M|S)\b/i);
+  const alpha = cleaned.match(/\b(XXL|XL|L|M|S)\b/i);
   if (alpha?.[1]) return String(alpha[1]).toUpperCase();
 
   // 2) نمرة/نمره/مقاس/قياس/رقم + رقم
-  const m1 = t.match(/(?:\b(?:نمرة|نمره|مقاس|قياس|رقم)\b)\s*[:\-]?\s*(\d{2,3}(?:\.\d)?)/i);
+  const m1 = cleaned.match(/(?:\b(?:نمرة|نمره|مقاس|قياس|رقم)\b)\s*[:\-]?\s*(\d{1,2}(?:\.\d)?)/i);
   if (m1?.[1]) return String(m1[1]);
 
-  // 3) fallback: رقم مستقل
-  const m2 = t.match(/(^|\s)(\d{2,3}(?:\.\d)?)(\s|$)/);
-  return m2 ? String(m2[2]) : null;
+  // 3) fallback محدود جدًا: فقط رقم 1-2 digits مستقل
+  // لمنع التقاط أكواد مثل 128 / 302 / 333 / 400
+  const m2 = cleaned.match(/(?:^|\s)(\d{1,2}(?:\.\d)?)(?:\s|$)/);
+  return m2 ? String(m2[1]) : null;
 }
+
 
 function isOnlySizeQuery(raw) {
   const s = toLatinDigits_(normalizeText(raw));
@@ -315,6 +325,19 @@ function sectionEmoji_(section) {
   if (s.includes("عطور")) return "🧴";
   return "🛍️";
 }
+function buildFallbackQueryFromSession(session, rawText = "") {
+  const parts = [];
+  const sec = session?.section || extractSectionHint(rawText) || null;
+  const aud = session?.audience || extractAudienceHint(rawText) || null;
+  const size = session?.size || extractSizeQuery(rawText) || null;
+
+  if (sec) parts.push(sec);
+  if (aud) parts.push(aud);
+  if (size && sec !== "عطور") parts.push(`مقاس ${size}`);
+
+  return parts.join(" ").trim() || String(rawText || "").trim();
+}
+
 /* =========================
    Shipping helpers
    ========================= */
@@ -1319,7 +1342,9 @@ if (res.type === "hit" && res.item) {
 }
 
     if (res.type === "clarify") {
-      const opts = (res.options || []).slice(0, 3);
+      const opts = Array.from(
+  new Map((res.options || []).map(o => [o.slug, o])).values()
+).slice(0, 3);
 
       if (convKey && choiceMemory) {
         choiceMemory.set(convKey, { ts: Date.now(), options: opts });
@@ -1426,12 +1451,14 @@ const hadBrandInMsg = !!effectiveBrandKey;
 
 if (hasAudienceWord && hadBrandInMsg) {
   // جرّب نفس الطلب لكن بدون قيد الماركة (بدائل بنفس audience/size)
-  const resAlt = searchKnowledge(ql || effectiveText, {
-    brandKey: null,        // ✅ ألغِ قيد الماركة فقط
-    brandExact: false,
-    session: session || null,
-    forceList: !!ctx?.forceList
-  });
+const fallbackQueryBase = buildFallbackQueryFromSession(session, ql || effectiveText);
+
+const resAlt = searchKnowledge(fallbackQueryBase, {
+  brandKey: null,        // ✅ ألغِ قيد الماركة فقط
+  brandExact: false,
+  session: session || null,
+  forceList: true
+});
 
   if (resAlt.type === "hit" && resAlt.item) {
     return {
