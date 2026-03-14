@@ -427,64 +427,96 @@ app.post("/chatwoot/webhook", async (req, res) => {
     const isNumberChoice = /^[1-3]$/.test(String(content || "").trim());
 
     // إذا في قائمة منتجات قديمة نشطة، خلي engine يعالج اختيار 1/2/3
-    if (!(route.lane === "engine_products_text" && isNumberChoice && choiceMemory?.has(convKey))) {
-      if (route.lane === "engine_products_text") {
-        if (route.reason === "free_text_product") {
-          clearLegacySelectionState(conversationId);
+if (!(route.lane === "engine_products_text" && isNumberChoice && choiceMemory?.has(convKey))) {
+  if (route.lane === "engine_products_text") {
+    const hasProductUrl = /https?:\/\/\S+\/product\/[a-z0-9\-]+/i.test(String(content || ""));
 
-          updateSession(convKey, {
-            flow: { active: "products", step: "section", updated_at: Date.now() },
-            last_user_text: content
-          });
-        }
+    // ✅ إذا المستخدم أرسل رابط منتج داخل Products Flow، عالجه كمنتج فورًا
+    if (hasProductUrl) {
+      if (choiceMemory?.has(convKey)) {
+        choiceMemory.delete(convKey);
+      }
 
-        const flowResult = handleProductsFlow({
-          text: content,
-          session: getSession(convKey),
-          routeReason: route.reason,
-          conversationId: convKey
-        });
+      const out = handleQuery(content, {
+        conversationId: convKey,
+        choiceMemory,
+        forceList: false
+      });
 
-        if (flowResult?.type === "reply") {
-          await chatwootCreateMessage(conversationId, flowResult.reply);
-          return res.json({
-            ok: true,
-            replied: true,
-            lane: route.lane,
-            flow: flowResult.patch?.flow || getSession(convKey)?.flow || null
-          });
-        }
+      const labels = mapToChatwootLabels(out.tags || []);
+      if (labels.length) {
+        const convNow = await chatwootGetConversation(conversationId);
+        const existing = Array.isArray(convNow?.labels) ? convNow.labels : [];
+        const merged = Array.from(new Set([...existing, ...labels]));
+        const same =
+          merged.length === existing.length &&
+          merged.every((x) => existing.includes(x));
 
-        if (flowResult?.type === "engine") {
-          if (choiceMemory?.has(convKey)) {
-            choiceMemory.delete(convKey);
-          }
-
-          const out = handleQuery(flowResult.query || content, {
-            conversationId: convKey,
-            choiceMemory,
-            forceList: true
-          });
-
-          const labels = mapToChatwootLabels(out.tags || []);
-          if (labels.length) {
-            const convNow = await chatwootGetConversation(conversationId);
-            const existing = Array.isArray(convNow?.labels) ? convNow.labels : [];
-            const merged = Array.from(new Set([...existing, ...labels]));
-            const same =
-              merged.length === existing.length &&
-              merged.every((x) => existing.includes(x));
-
-            if (!same) {
-              await chatwootSetLabels(conversationId, merged);
-            }
-          }
-
-          await chatwootCreateMessage(conversationId, out.reply);
-          return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
+        if (!same) {
+          await chatwootSetLabels(conversationId, merged);
         }
       }
+
+      await chatwootCreateMessage(conversationId, out.reply);
+      return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
     }
+
+    if (route.reason === "free_text_product") {
+      clearLegacySelectionState(conversationId);
+
+      updateSession(convKey, {
+        flow: { active: "products", step: "section", updated_at: Date.now() },
+        last_user_text: content
+      });
+    }
+
+    const flowResult = handleProductsFlow({
+      text: content,
+      session: getSession(convKey),
+      routeReason: route.reason,
+      conversationId: convKey
+    });
+
+    if (flowResult?.type === "reply") {
+      await chatwootCreateMessage(conversationId, flowResult.reply);
+      return res.json({
+        ok: true,
+        replied: true,
+        lane: route.lane,
+        flow: flowResult.patch?.flow || getSession(convKey)?.flow || null
+      });
+    }
+
+    if (flowResult?.type === "engine") {
+      if (choiceMemory?.has(convKey)) {
+        choiceMemory.delete(convKey);
+      }
+
+      const out = handleQuery(flowResult.query || content, {
+        conversationId: convKey,
+        choiceMemory,
+        forceList: true
+      });
+
+      const labels = mapToChatwootLabels(out.tags || []);
+      if (labels.length) {
+        const convNow = await chatwootGetConversation(conversationId);
+        const existing = Array.isArray(convNow?.labels) ? convNow.labels : [];
+        const merged = Array.from(new Set([...existing, ...labels]));
+        const same =
+          merged.length === existing.length &&
+          merged.every((x) => existing.includes(x));
+
+        if (!same) {
+          await chatwootSetLabels(conversationId, merged);
+        }
+      }
+
+      await chatwootCreateMessage(conversationId, out.reply);
+      return res.json({ ok: true, replied: true, found: out.found, tags: out.tags, labels });
+    }
+  }
+}
 
     const out = handleQuery(content, {
       conversationId: String(conversationId),
