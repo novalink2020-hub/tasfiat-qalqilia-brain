@@ -437,11 +437,26 @@ if (!(route.lane === "engine_products_text" && isNumberChoice && choiceMemory?.h
         choiceMemory.delete(convKey);
       }
 
-      const out = handleQuery(content, {
-        conversationId: convKey,
-        choiceMemory,
-        forceList: false
-      });
+      let out;
+      try {
+        out = handleQuery(content, {
+          conversationId: convKey,
+          choiceMemory,
+          forceList: false
+        });
+      } catch (e) {
+        console.error("❌ handleQuery failed for product URL inside flow:", e);
+        out = null;
+      }
+
+      if (!out || typeof out.reply !== "string" || !out.reply.trim()) {
+        out = {
+          ok: true,
+          found: false,
+          reply: "تمام 🙏 استلمت الرابط، لكن صار تعارض بسيط وأنا أفتحه. جرّب تبعته مرة ثانية أو اكتب اسم المنتج مباشرة.",
+          tags: ["lead_product", "product_none", "needs_clarification"]
+        };
+      }
 
       const labels = mapToChatwootLabels(out.tags || []);
       if (labels.length) {
@@ -492,11 +507,26 @@ if (!(route.lane === "engine_products_text" && isNumberChoice && choiceMemory?.h
         choiceMemory.delete(convKey);
       }
 
-      const out = handleQuery(flowResult.query || content, {
-        conversationId: convKey,
-        choiceMemory,
-        forceList: true
-      });
+      let out;
+      try {
+        out = handleQuery(flowResult.query || content, {
+          conversationId: convKey,
+          choiceMemory,
+          forceList: true
+        });
+      } catch (e) {
+        console.error("❌ handleQuery failed inside products flow:", e);
+        out = null;
+      }
+
+      if (!out || typeof out.reply !== "string" || !out.reply.trim()) {
+        out = {
+          ok: true,
+          found: false,
+          reply: "تمام 🙏 صار عندي تعارض بسيط وأنا أبحث. جرّب مرة ثانية أو اكتب نفس الطلب بصيغة: القسم + الجمهور + المقاس + الماركة، وبكمل معك فورًا.",
+          tags: ["lead_product", "product_none", "needs_clarification"]
+        };
+      }
 
       const labels = mapToChatwootLabels(out.tags || []);
       if (labels.length) {
